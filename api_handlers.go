@@ -9,22 +9,53 @@ import (
 
 // registerHandlers регистрирует все HTTP endpoints
 func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
-	mux.HandleFunc("POST /api/simulate", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/simulate", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			respondError(w, "Method Not Allowed", "Use POST for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
 		handleSimulate(w, r, sim)
 	})
-	mux.HandleFunc("GET /api/world/state", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/world/state", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
 		handleGetWorldState(w, r, sim)
 	})
-	mux.HandleFunc("GET /api/world/events", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/world/events", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
 		handleGetEvents(w, r, sim)
 	})
-	mux.HandleFunc("GET /api/factions", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/factions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
 		handleGetFactions(w, r, sim)
 	})
-	mux.HandleFunc("GET /api/domains", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/domains", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
 		handleGetDomains(w, r, sim)
 	})
-	mux.HandleFunc("GET /health", handleHealth)
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
+			return
+		}
+		handleHealth(w, r)
+	})
 }
 
 // ============ HANDLERS ============
