@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 )
@@ -87,7 +90,7 @@ func (sim *WorldSimulator) Start() {
 	// Фракции воюют и торгуют
 	go sim.runFactionAI()
 
-	// Домены меняют стабильность
+	// В доменах происходят свои события
 	go sim.runDomainSimulation()
 
 	// Случайные события
@@ -102,7 +105,7 @@ func (sim *WorldSimulator) Stop() {
 	log.Println("⛔ Simulation stopped")
 }
 
-// ============ MAIN SIMULATION LOOP ============
+// ============ ОСНОВНАЯ СИМУЛЯЦИЯ ============
 
 // Simulate запускает симуляцию на N часов
 func (sim *WorldSimulator) Simulate(hours int64) *SimulationDelta {
@@ -112,13 +115,13 @@ func (sim *WorldSimulator) Simulate(hours int64) *SimulationDelta {
 	startTime := sim.GlobalTime
 	endTime := startTime + hours
 
-	// Track events that happen during this simulation
+	// Отслеживаем события, проходящие во время симуляции
 	newEvents := []WorldEvent{}
 
 	for hour := startTime; hour < endTime; hour++ {
 		sim.GlobalTime = hour
 
-		// Every hour: chance of events
+		// Каждый игрово час есть фиксированное значение вероятности наступления события
 		if rand.Float64() < 0.3 { // 30% chance per hour
 			event := sim.generateHourlyEvent(hour)
 			if event != nil {
@@ -130,6 +133,24 @@ func (sim *WorldSimulator) Simulate(hours int64) *SimulationDelta {
 		// Every 12 hours: faction actions
 		if hour%12 == 0 {
 			sim.executeFactionActions()
+			keys := make([]string, 0, len(sim.Domains))
+			for k := range sim.Domains {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys) // детерминированный порядок
+
+			domainsSlice := make([]*DomainState, 0, len(keys))
+			for _, k := range keys {
+				domainsSlice = append(domainsSlice, sim.Domains[k])
+			}
+
+			// Запускаем интегратор для каждой фракции на 12 часов (параметр можно поменять)
+			for _, faction := range sim.Factions {
+				SimulateFactionExpansion(faction, domainsSlice, 12)
+			}
+
+			// Синхронизируем списки доменов у фракций
+			sim.syncFactionDomains()
 		}
 
 		// Every 6 hours: domain stability changes
@@ -151,10 +172,10 @@ func (sim *WorldSimulator) Simulate(hours int64) *SimulationDelta {
 	return delta
 }
 
-// ============ GOROUTINE: FACTION AI ============
+// ============ ГОРУТИНЫ: ДЕЙСТВИЯ ФРАКЦИЙ ============
 
 func (sim *WorldSimulator) runFactionAI() {
-	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	ticker := time.NewTicker(30 * time.Second) // Тик проходит каждые 30 секунд игрового времени
 	defer ticker.Stop()
 
 	for {
@@ -171,18 +192,19 @@ func (sim *WorldSimulator) runFactionAI() {
 
 func (sim *WorldSimulator) executeFactionActions() {
 	for _, faction := range sim.Factions {
-		// Random chance: faction does something
-		if rand.Float64() < 0.4 { // 40% chance per tick
+		// Пока что всё на рандоме. Что-то может СЛУЧИТЬСЯ и фракция начнёт ЧТО-ТО ДЕЛАЬТ
+		if rand.Float64() < 0.4 { // 40% шанс на то, что ЧТО-ТО случится
 			action := rand.Intn(3)
 			switch action {
 			case 0:
-				// Try to take control of a domain
+				// Случилась война. Фракция пытается отобрать домен у другой
+				// Очевидно, что в дальнейшем это всё будет не на рандоме, а в зависимости от обстоятельств симуляции
 				sim.attemptDomainTakeover(faction)
 			case 1:
-				// Establish trade route
+				// Устанавливаются торговые связи
 				sim.establishTradeRoute(faction)
 			case 2:
-				// Recruit resources
+				// Извлекаются ресурсы
 				faction.Resources = minFloat(faction.Resources+5, 100)
 			}
 		}
@@ -210,24 +232,24 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState) {
 			} else {
 				// War between factions
 				outcome := sim.resolveFactionWar(attacker, defender, domain)
-				log.Printf("⚔️  War: %s vs %s in %s → %s", attacker.Name, defender.Name, domain.Name, outcome)
+				log.Printf("⚔️  War: %s(Attacker) vs %s(Defender) in %s → %s", attacker.Name, defender.Name, domain.Name, outcome)
 			}
 		}
 	}
 }
 
 func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
-	// Compare military forces
-	attackerStrength := attacker.MilitaryForce * (1 + rand.Float64()*0.2) // ±20% variance
+	// Сравниваем силу враждующих
+	attackerStrength := attacker.MilitaryForce * (1 + rand.Float64()*0.2) // добавляем рандома
 	defenderStrength := defender.MilitaryForce * (1 + rand.Float64()*0.2)
 
 	if attackerStrength > defenderStrength {
-		// Attacker wins
-		// Transfer domain
+		// Если атакующий победил
+		// Передаём ему домен
 		domain.ControlledBy = attacker.ID
 		attacker.DomainsHeld = append(attacker.DomainsHeld, domain.ID)
 
-		// Remove from defender
+		// Убираем домен от защищующегося
 		newDomains := []string{}
 		for _, d := range defender.DomainsHeld {
 			if d != domain.ID {
@@ -254,7 +276,7 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 }
 
 func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
-	// Find two domains
+	// Выбираем два рандомных домена
 	domains := make([]*DomainState, 0)
 	for _, d := range sim.Domains {
 		domains = append(domains, d)
@@ -271,7 +293,8 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 		return
 	}
 
-	// Establish trade (improve stability in both domains)
+	// Устанавливаются торговые связи, даются плюшки
+	// Сейчас торговая связь устанавливается просто по велению рандома, но мы это поправим
 	domain1.Stability = minFloat(domain1.Stability+10, 100)
 	domain2.Stability = minFloat(domain2.Stability+10, 100)
 	faction.Resources += 10
@@ -279,7 +302,7 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	log.Printf("🏪 Trade route established between %s and %s by %s", domain1.Name, domain2.Name, faction.Name)
 }
 
-// ============ GOROUTINE: DOMAIN SIMULATION ============
+// ============ ГОРУТИНЫ: СИМУЛЯЦИЯ ДОМЕНОВ ============
 
 func (sim *WorldSimulator) runDomainSimulation() {
 	ticker := time.NewTicker(20 * time.Second)
@@ -301,11 +324,11 @@ func (sim *WorldSimulator) updateDomainStability() {
 	for _, domain := range sim.Domains {
 		controller := sim.Factions[domain.ControlledBy]
 		if controller == nil {
-			domain.Stability = maxFloat(domain.Stability-2, 0) // Ungoverned → chaos
+			domain.Stability = maxFloat(domain.Stability-2, 0) // Контроля нет - уходим в хаос
 			continue
 		}
 
-		// Stability based on faction's ideology and power
+		// Стабильность доменов в зависимости от того, кто их контроллирует
 		if controller.ID == FactionCorporateConsortium {
 			// Corporate = stable but exploitative
 			domain.Stability = minFloat(domain.Stability+1, 80)
@@ -326,7 +349,7 @@ func (sim *WorldSimulator) updateDomainStability() {
 	}
 }
 
-// ============ GOROUTINE: EVENT GENERATION ============
+// ============ ГОРУТИНЫ: ГЕНЕРАЦИЯ СОБЫТИЙ ============
 
 func (sim *WorldSimulator) runEventGenerator() {
 	ticker := time.NewTicker(45 * time.Second)
@@ -470,6 +493,100 @@ func (sim *WorldSimulator) generateDangerEvent(hour int64) *WorldEvent {
 
 // ============ HELPERS ============
 
+func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, hours int) {
+	n := len(domains)
+	if n == 0 || hours <= 0 {
+		return
+	}
+
+	neighbors := buildNeighborsFromDomains(domains)
+
+	// Начальное распределение: 1.0 в доменах, контролируемых фракцией
+	u := make([]float64, n)
+	for i := 0; i < n; i++ {
+		if domains[i].ControlledBy == faction.ID {
+			u[i] = 1.0
+		} else {
+			u[i] = 0.0
+		}
+	}
+
+	// Параметры модели (настройте по вкусу или добавьте поля в FactionState)
+	D := minFloat(1.0, 0.2+0.8*(faction.Power/100.0))
+	r := minFloat(0.2, 0.01+0.09*(faction.Territory/5.0))
+	dt := 1.0 // один час на внешний шаг
+
+	// Оценка стабильности явной схемы — число субшагов внутри часа
+	maxDeg := 0
+	for _, nb := range neighbors {
+		if len(nb) > maxDeg {
+			maxDeg = len(nb)
+		}
+	}
+	substeps := 1
+	if D > 0 && maxDeg > 0 {
+		substeps = int(math.Ceil(dt * D * float64(maxDeg) * 2.0))
+		if substeps < 1 {
+			substeps = 1
+		}
+		if substeps > 1000 {
+			substeps = 1000
+		}
+	}
+
+	// Интегрируем
+	for h := 0; h < hours; h++ {
+		prev := make([]float64, n)
+		copy(prev, u)
+		u = SolveKPGraph(u, neighbors, D, r, dt, substeps)
+		// 1) лог плотностей компактно
+		row := ""
+		for i := 0; i < n; i++ {
+			row += fmt.Sprintf("%.3f", u[i])
+			if i < n-1 {
+				row += ", "
+			}
+		}
+		fmt.Printf("Faction %s hour %d densities: [%s]", faction.ID, h+1, row)
+
+		// 2) события захвата (пересечение порога)
+		for i := 0; i < n; i++ {
+			if prev[i] <= 0.5 && u[i] > 0.5 {
+				fmt.Printf("  TAKEOVER: faction=%s domain=%s idx=%d new_density=%.3f", faction.ID, domains[i].ID, i, u[i])
+			}
+		}
+
+		// 3) агрегаты: count, max, center of mass
+		count := 0
+		maxv := 0.0
+		sum := 0.0
+		weightSum := 0.0
+		for i, v := range u {
+			if v > 0.5 {
+				count++
+			}
+			if v > maxv {
+				maxv = v
+			}
+			sum += v
+			weightSum += float64(i) * v
+		}
+		com := 0.0
+		if sum > 0 {
+			com = weightSum / sum
+		} // центр масс по индексам
+		fmt.Printf("  metrics: controlled=%d max=%.3f mean=%.3f com=%.2f\n------------", count, maxv, sum/float64(n), com)
+	}
+
+	// Применяем результат к реальным доменам
+	for i, density := range u {
+		if density > 0.5 {
+			// TODO!!! Добавить не простой переход при превышении порога плотности, а реакцию других фракций
+			domains[i].ControlledBy = faction.ID
+		}
+	}
+}
+
 func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
 	copy := make(map[string]*FactionState)
 	for id, faction := range sim.Factions {
@@ -563,6 +680,7 @@ func createInitialFactions() map[string]*FactionState {
 	}
 }
 
+// Стартовые условия в доменах. Стабильность, кому принадлежит, уровень опасности.
 func createInitialDomains() map[string]*DomainState {
 	return map[string]*DomainState{
 		DomainLimbo: {
@@ -677,6 +795,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
+// Тупо для логов, никакой сакральной ценности не несёт
 func generateID() string {
 	chars := "abcdefghijklmnopqrstuvwxyz"
 	id := "evt_"
@@ -684,4 +803,18 @@ func generateID() string {
 		id += string(chars[rand.Intn(len(chars))])
 	}
 	return id
+}
+
+// syncFactionDomains перестраивает DomainsHeld у всех фракций на основе current ControlledBy
+func (sim *WorldSimulator) syncFactionDomains() {
+	// очистить списки
+	for _, f := range sim.Factions {
+		f.DomainsHeld = f.DomainsHeld[:0]
+	}
+	// заполнить заново
+	for _, d := range sim.Domains {
+		if f := sim.Factions[d.ControlledBy]; f != nil {
+			f.DomainsHeld = append(f.DomainsHeld, d.ID)
+		}
+	}
 }
