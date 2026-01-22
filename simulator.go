@@ -48,6 +48,7 @@ type DomainState struct {
 	Population   int
 	Mood         string   // "stable", "unrest", "rebellion"
 	Events       []string // event IDs that happened here
+	Influence    map[string]float64
 }
 
 // WorldEvent представляет событие в мире
@@ -195,11 +196,17 @@ func (sim *WorldSimulator) executeFactionActions() {
 		// Пока что всё на рандоме. Что-то может СЛУЧИТЬСЯ и фракция начнёт ЧТО-ТО ДЕЛАЬТ
 		if rand.Float64() < 0.4 { // 40% шанс на то, что ЧТО-ТО случится
 			action := rand.Intn(3)
+			for _, domain := range sim.Domains {
+				if domain.ControlledBy != faction.ID {
+					// проверить domain.Influence[faction.ID]
+					// если > 0.5, вызвать attemptDomainTakeover с новыми аргументами
+					_, ok := domain.Influence[faction.ID]
+					if domain.Influence != nil && ok {
+						sim.attemptDomainTakeover(faction, domain, domain.Influence[faction.ID])
+					}
+				}
+			}
 			switch action {
-			case 0:
-				// Случилась война. Фракция пытается отобрать домен у другой
-				// Очевидно, что в дальнейшем это всё будет не на рандоме, а в зависимости от обстоятельств симуляции
-				sim.attemptDomainTakeover(faction)
 			case 1:
 				// Устанавливаются торговые связи
 				sim.establishTradeRoute(faction)
@@ -211,9 +218,17 @@ func (sim *WorldSimulator) executeFactionActions() {
 	}
 }
 
-func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState) {
+func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain *DomainState, influence float64) {
 	// Find a domain not controlled by this faction
-	for _, domain := range sim.Domains {
+	baseProbability := (attacker.MilitaryForce / 100) * (1 - float64(domain.DangerLevel)/10)
+	probability := baseProbability * (1.0 + influence)
+	if probability >= 0.6 {
+		sim.transferDomainControl(domain, attacker)
+		fmt.Printf("🎖️  %s takes control of %s", attacker.Name, domain.Name)
+	} else {
+		fmt.Printf("❗ %s failed to take control over %s. Attempt probability: %s\n", attacker.Name, domain.Name, probability)
+	}
+	/*for _, domain := range sim.Domains {
 		if domain.ControlledBy == attacker.ID {
 			continue // Already controls it
 		}
@@ -235,13 +250,13 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState) {
 				log.Printf("⚔️  War: %s(Attacker) vs %s(Defender) in %s → %s", attacker.Name, defender.Name, domain.Name, outcome)
 			}
 		}
-	}
+	}*/
 }
 
 func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
 	// Сравниваем силу враждующих
-	attackerStrength := attacker.MilitaryForce * (1 + rand.Float64()*0.2) // добавляем рандома
-	defenderStrength := defender.MilitaryForce * (1 + rand.Float64()*0.2)
+	attackerStrength := attacker.MilitaryForce * (1 + rand.Float64()*domain.Influence[attacker.ID]) // добавляем рандома
+	defenderStrength := defender.MilitaryForce * (1 + rand.Float64()*domain.Influence[defender.ID])
 
 	if attackerStrength > defenderStrength {
 		// Если атакующий победил
@@ -580,10 +595,31 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, hou
 
 	// Применяем результат к реальным доменам
 	for i, density := range u {
-		if density > 0.5 {
-			// TODO!!! Добавить не простой переход при превышении порога плотности, а реакцию других фракций
-			domains[i].ControlledBy = faction.ID
-		}
+		domains[i].Influence[faction.ID] = density // В домене влияние фракции меняется на величину density
+		/*
+			if density > 0.5 {
+				// TODO!!! Добавить не простой переход при превышении порога плотности, а реакцию других фракций
+				domains[i].ControlledBy = faction.ID
+			}
+		*/
+	}
+
+	type pair struct {
+		id      string
+		density float64
+	}
+	pairs := make([]pair, 0, len(domains))
+
+	for i, d := range domains {
+		pairs = append(pairs, pair{id: d.ID, density: u[i]})
+	}
+
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].density > pairs[j].density })
+
+	top := 3
+	for i := 0; i < top; i++ {
+		log.Printf("Top %d takeover candidate: domain=%s density=%.3f", i+1, pairs[i].id, pairs[i].density)
+		log.Printf("Faction Name: %s", faction.ID)
 	}
 }
 
@@ -691,6 +727,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  3,
 			Population:   5000,
 			Mood:         "stable",
+			Influence:    make(map[string]float64),
 		},
 		DomainLust: {
 			ID:           DomainLust,
@@ -700,6 +737,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  5,
 			Population:   3000,
 			Mood:         "exploited",
+			Influence:    make(map[string]float64),
 		},
 		DomainGluttony: {
 			ID:           DomainGluttony,
@@ -709,6 +747,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  4,
 			Population:   2500,
 			Mood:         "hopeful",
+			Influence:    make(map[string]float64),
 		},
 		DomainGreed: {
 			ID:           DomainGreed,
@@ -718,6 +757,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  6,
 			Population:   4000,
 			Mood:         "unrest",
+			Influence:    make(map[string]float64),
 		},
 		DomainWrath: {
 			ID:           DomainWrath,
@@ -727,6 +767,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  9,
 			Population:   6000,
 			Mood:         "terrified",
+			Influence:    make(map[string]float64),
 		},
 		DomainHeresy: {
 			ID:           DomainHeresy,
@@ -736,6 +777,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  7,
 			Population:   1000,
 			Mood:         "mysterious",
+			Influence:    make(map[string]float64),
 		},
 		DomainViolence: {
 			ID:           DomainViolence,
@@ -745,6 +787,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  10,
 			Population:   8000,
 			Mood:         "chaotic",
+			Influence:    make(map[string]float64),
 		},
 		DomainFraud: {
 			ID:           DomainFraud,
@@ -754,6 +797,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  8,
 			Population:   2000,
 			Mood:         "deceptive",
+			Influence:    make(map[string]float64),
 		},
 		DomainBetrayance: {
 			ID:           DomainBetrayance,
@@ -763,6 +807,7 @@ func createInitialDomains() map[string]*DomainState {
 			DangerLevel:  10,
 			Population:   500,
 			Mood:         "despairing",
+			Influence:    make(map[string]float64),
 		},
 	}
 }
@@ -817,4 +862,53 @@ func (sim *WorldSimulator) syncFactionDomains() {
 			f.DomainsHeld = append(f.DomainsHeld, d.ID)
 		}
 	}
+}
+
+// TODO: Доделать
+func (sim *WorldSimulator) transferDomainControl(domain *DomainState, newOwner *FactionState) {
+	sim.mu.Lock()
+	defer sim.mu.Unlock()
+	oldOwner := sim.Factions[domain.ControlledBy]
+
+	if newOwner != nil && oldOwner != nil && oldOwner.ID == newOwner.ID {
+		return // ничего не менять
+	}
+
+	if oldOwner != nil {
+		oldOwner.removeDomain(domain.ID)
+	}
+
+	if newOwner == nil {
+		domain.ControlledBy = "none"
+		return
+	}
+
+	domain.ControlledBy = newOwner.ID
+	newOwner.addDomain(domain.ID)
+}
+
+func (faction *FactionState) addDomain(id string) {
+	if faction.hasDomain(id) {
+		return
+	}
+	faction.DomainsHeld = append(faction.DomainsHeld, id)
+}
+
+func (faction *FactionState) removeDomain(id string) {
+	out := faction.DomainsHeld[:0]
+	for _, d := range faction.DomainsHeld {
+		if d != id {
+			out = append(out, d)
+		}
+	}
+	faction.DomainsHeld = out
+}
+
+func (faction *FactionState) hasDomain(id string) bool {
+	for _, d := range faction.DomainsHeld {
+		if d == id {
+			return true
+		}
+	}
+	return false
 }
