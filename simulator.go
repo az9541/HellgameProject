@@ -89,16 +89,16 @@ func NewWorldSimulator() *WorldSimulator {
 func (sim *WorldSimulator) Start() {
 	log.Println("🚀 Starting world simulation goroutines...")
 
-	// Фракции воюют и торгуют
-	go sim.runFactionAI()
+	/*// Фракции воюют и торгуют
+	go sim.runFactionAI() // +, надо перенести
 
 	// В доменах происходят свои события
-	go sim.runDomainSimulation()
+	go sim.runDomainSimulation() // +, надо перенести
 
 	// Случайные события
 	go sim.runEventGenerator()
-
-	go sim.runKPPSimulation()
+	*/
+	go sim.runTimeLoop()
 
 	log.Println("✅ Simulation goroutines started")
 }
@@ -162,6 +162,44 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 	return delta
 }
 
+func (sim *WorldSimulator) runTimeLoop() {
+	// 1 тик = 5 реальных секунд
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-sim.stop:
+			return
+		case <-ticker.C:
+			sim.mu.Lock()
+
+			// 1. Сначала считаем физику (влияние распространяется)
+			sim.runKPPSimulation()
+
+			// 2. Раз в 6 тиков (30 сек) фракции принимают решения
+			if sim.GlobalTick%6 == 0 {
+				sim.executeFactionActions()
+			}
+
+			// 3. Раз в 9 тиков (45 сек) происходят случайные события
+			if sim.GlobalTick%9 == 0 {
+				sim.generateTickEvent(sim.GlobalTick) // или вызов runEventGenerator логики
+			}
+
+			// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
+			if sim.GlobalTick%12 == 0 {
+				sim.updateDomainStability()
+			}
+
+			// 5. И только в конце обновляем время
+			sim.GlobalTick++
+
+			sim.mu.Unlock()
+		}
+	}
+}
+
 // ============ ГОРУТИНЫ: ДЕЙСТВИЯ ФРАКЦИЙ ============
 
 func (sim *WorldSimulator) runFactionAI() {
@@ -187,8 +225,6 @@ func (sim *WorldSimulator) executeFactionActions() {
 			action := rand.Intn(3)
 			for _, domain := range sim.Domains {
 				if domain.ControlledBy != faction.ID {
-					// проверить domain.Influence[faction.ID]
-					// если > 0.5, вызвать attemptDomainTakeover с новыми аргументами
 					if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver { // порог вынесен в константу?
 						sim.attemptDomainTakeover(faction, domain, infl)
 					}
@@ -304,31 +340,15 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 	}
 }
 
-// runKPPSimulation рассчитывает влияние фракций на домены
+// runKPPSimulation выполняет один шаг KPP (одно обновление влияния фракций).
+// Это не должен быть блокирующий цикл с тикером — шаг вызывается из `runTimeLoop()`.
 func (sim *WorldSimulator) runKPPSimulation() {
-	// Тик KPP может быть реже, чем ИИ фракций
-	// Например, раз в 10 секунд (если ИИ раз в 30)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	// Пересчитываем физику для каждой фракции один раз
+	keys := getSortedDomainKeys(sim.Domains)
+	domainsSlice := getDomainsList(keys, sim.Domains)
 
-	for {
-		select {
-		case <-sim.stop:
-			return
-		case <-ticker.C:
-			sim.mu.Lock()
-
-			// Пересчитываем физику для каждой фракции
-			keys := getSortedDomainKeys(sim.Domains)
-			domainsSlice := getDomainsList(keys, sim.Domains)
-
-			for _, faction := range sim.Factions {
-				// Считаем только на 1 "тик" (здесь это означает 1 цикл KPP)
-				SimulateFactionExpansion(faction, domainsSlice, 1)
-			}
-
-			sim.mu.Unlock()
-		}
+	for _, faction := range sim.Factions {
+		SimulateFactionExpansion(faction, domainsSlice, 1)
 	}
 }
 
@@ -535,7 +555,7 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 		if domains[i].ControlledBy == faction.ID {
 			u[i] = 1.0
 		} else {
-			u[i] = 0.0
+			u[i] = MinInfluence
 		}
 	}
 
@@ -603,7 +623,7 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 		if sum > 0 {
 			com = weightSum / sum
 		} // центр масс по индексам
-		log.Printf("EXPANSION_METRICS faction=%q step=%d controlled=%d max=%.3f mean=%.3f com=%.2f", faction.ID, h+1, count, maxv, sum/float64(n), com)
+		log.Printf("EXPANSION_METRICS=faction=%q step=%d controlled=%d max=%.3f mean=%.3f com=%.2f", faction.ID, h+1, count, maxv, sum/float64(n), com)
 	}
 
 	// Применяем результат к реальным доменам
@@ -631,8 +651,9 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 
 	top := minInt(3, len(pairs))
 	for i := 0; i < top; i++ {
-		log.Printf("EVENT=TOP_TAKEOVER_CANDIDATE faction=%q rank=%d domain=%q density=%.3f", faction.ID, i+1, pairs[i].id, pairs[i].density)
+		log.Printf("EXPANSION_METRICS=TOP_TAKEOVER_CANDIDATE faction=%q rank=%d domain=%q density=%.3f", faction.ID, i+1, pairs[i].id, pairs[i].density)
 	}
+	log.Printf("\n_____________________________________")
 }
 
 func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
