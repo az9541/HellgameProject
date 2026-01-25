@@ -32,5 +32,5 @@ const (
 	EventTypeDanger            = "danger"
 
 	// Numerical constants
-	InfluenceToTakeOver = 0.4 // Порог влияния фракции для попытки захвата домена
+	InfluenceToTakeOver = 0.1 // Порог влияния фракции для попытки захвата домена
 )
