@@ -195,46 +195,42 @@ func (sim *WorldSimulator) runTimeLoop() {
 
 func (sim *WorldSimulator) executeFactionActions() {
 	for _, faction := range sim.Factions {
-		// Пока что всё на рандоме. Что-то может СЛУЧИТЬСЯ и фракция начнёт ЧТО-ТО ДЕЛАТЬ
-		if rand.Float64() < 0.4 { // 40% шанс на то, что ЧТО-ТО случится
-			action := rand.Intn(3)
-			// Выбираем самый перспективный домен
-			var topDomain *DomainState
-			var topInfluence float64
+		// Сначала всегда проверяем кандидатуры на захват по текущим плотностям влияния
+		var topDomain *DomainState
+		var topInfluence float64
 
-			for _, domain := range sim.Domains {
-				// Если домен контролируется текущей фракцией - ничего для него не считаем
-				if domain.ControlledBy == faction.ID {
-					continue
-				}
-				// Если у фракции есть влияние на домен, проверяем, больше ли оно порогового значения
-				if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
-					if infl > topInfluence {
-						topInfluence = infl
-						topDomain = domain
-					}
+		for _, domain := range sim.Domains {
+			// Если домен контролируется текущей фракцией - пропускаем
+			if domain.ControlledBy == faction.ID {
+				continue
+			}
+			// Проверяем влияние фракции на домен
+			if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
+				if infl > topInfluence {
+					topInfluence = infl
+					topDomain = domain
 				}
 			}
+		}
 
-			// Если значение влияния большое порогового - фракция пробует прибрать домен себе
-			if topDomain != nil {
-				// Если домен уже кем-то занят, рассчитывается эвент войны
-				if topDomain.ControlledBy != "none" {
-					sim.resolveFactionWar(faction, sim.Factions[topDomain.ControlledBy], topDomain)
-					// В противном случае - происходит попытка захвата ничейного домена
-				} else {
-					sim.attemptDomainTakeover(faction, topDomain, topInfluence)
-				}
+		// Если есть кандидат — пробуем захват или приводим к войне
+		if topDomain != nil {
+			if topDomain.ControlledBy != "none" {
+				sim.resolveFactionWar(faction, sim.Factions[topDomain.ControlledBy], topDomain)
 			} else {
-				// TODO: Сделать последствия для фракции в случае провала захвата домена
-				log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f), faction influence on domen: %.2f", faction.ID, InfluenceToTakeOver, topInfluence)
+				sim.attemptDomainTakeover(faction, topDomain, topInfluence)
 			}
+		} else {
+			log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f), faction influence on domen: %.2f", faction.ID, InfluenceToTakeOver, topInfluence)
+		}
+
+		// Отдельно — случайные второстепенные действия (торговля, ресурсы)
+		if rand.Float64() < 0.4 { // 40% шанс на побочное действие
+			action := rand.Intn(3)
 			switch action {
 			case 1:
-				// Устанавливаются торговые связи
 				sim.establishTradeRoute(faction)
 			case 2:
-				// Извлекаются ресурсы
 				faction.Resources = minFloat(faction.Resources+5, 100)
 			}
 		}
@@ -254,9 +250,14 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 }
 
 func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
+
 	// Сравниваем силу враждующих
 	attackerStrength := attacker.MilitaryForce * (1 + rand.Float64()*domain.Influence[attacker.ID]) // добавляем рандома
 	defenderStrength := defender.MilitaryForce * (1 + rand.Float64()*domain.Influence[defender.ID])
+
+	// Логируем сам факт начала конфликта
+	log.Printf("EVENT=WAR_STARTED tick=%d attacker=%q defender=%q domain=%q a_str=%.1f d_str=%.1f",
+		sim.GlobalTick, attacker.Name, defender.Name, domain.Name, attackerStrength, defenderStrength)
 
 	if attackerStrength > defenderStrength {
 		// Если атакующий победил
@@ -277,15 +278,33 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 		attacker.Power += 8
 		defender.Power -= 5
 
-		// Stability drops in conquered domain
-		domain.Stability -= 15
-		domain.Mood = "unrest"
+		// Последствия для домена
+		domain.Stability = maxFloat(domain.Stability-15, 0)
+		domain.Mood = "conquered"
 
+		// Создаем событие для фронтенда/истории
+		warEvent := WorldEvent{
+			ID:          generateID(),
+			Hour:        sim.GlobalTick,
+			Type:        "faction_war",
+			Location:    domain.ID,
+			Title:       fmt.Sprintf("%s conquered %s", attacker.Name, domain.Name),
+			Description: fmt.Sprintf("After a fierce battle, %s seized control from %s.", attacker.Name, defender.Name),
+			Consequence: "Owner changed",
+			Factions:    []string{attacker.ID, defender.ID},
+		}
+		sim.EventLog = append(sim.EventLog, warEvent)
+
+		log.Printf("EVENT=WAR_RESULT tick=%d result=VICTORY attacker=%q domain=%q", sim.GlobalTick, attacker.Name, domain.Name)
 		return "attacker_victory"
+
 	} else {
-		// Defender wins
-		defender.Power += 5
-		attacker.Power -= 3
+		// --- ЗАЩИТНИК ОТБИЛСЯ ---
+
+		defender.Power += 2
+		attacker.Power -= 2
+
+		log.Printf("EVENT=WAR_RESULT tick=%d result=DEFEAT attacker=%q domain=%q", sim.GlobalTick, attacker.Name, domain.Name)
 		return "defender_victory"
 	}
 }
