@@ -33,4 +33,5 @@ const (
 
 	// Numerical constants
 	InfluenceToTakeOver = 0.1 // Порог влияния фракции для попытки захвата домена
+	MinInfluence        = 0.01
 )
