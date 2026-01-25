@@ -91,13 +91,13 @@ func (sim *WorldSimulator) Start() {
 
 	go sim.runTimeLoop()
 
-	log.Println("✅ Simulation goroutines started")
+	log.Printf("✅ Simulation goroutines started")
 }
 
 // Stop останавливает симуляцию
 func (sim *WorldSimulator) Stop() {
 	sim.stop <- true
-	log.Println("⛔ Simulation stopped")
+	log.Println("Simulation stopped")
 }
 
 // ============ ОСНОВНАЯ СИМУЛЯЦИЯ ============
@@ -203,9 +203,11 @@ func (sim *WorldSimulator) executeFactionActions() {
 			var topInfluence float64
 
 			for _, domain := range sim.Domains {
+				// Если домен контролируется текущей фракцией - ничего для него не считаем
 				if domain.ControlledBy == faction.ID {
 					continue
 				}
+				// Если у фракции есть влияние на домен, проверяем, больше ли оно порогового значения
 				if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
 					if infl > topInfluence {
 						topInfluence = infl
@@ -214,10 +216,18 @@ func (sim *WorldSimulator) executeFactionActions() {
 				}
 			}
 
+			// Если значение влияния большое порогового - фракция пробует прибрать домен себе
 			if topDomain != nil {
-				sim.attemptDomainTakeover(faction, topDomain, topInfluence)
+				// Если домен уже кем-то занят, рассчитывается эвент войны
+				if topDomain.ControlledBy != "none" {
+					sim.resolveFactionWar(faction, sim.Factions[topDomain.ControlledBy], topDomain)
+					// В противном случае - происходит попытка захвата ничейного домена
+				} else {
+					sim.attemptDomainTakeover(faction, topDomain, topInfluence)
+				}
 			} else {
-				log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f)", faction.ID, InfluenceToTakeOver)
+				// TODO: Сделать последствия для фракции в случае провала захвата домена
+				log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f), faction influence on domen: %.2f", faction.ID, InfluenceToTakeOver, topInfluence)
 			}
 			switch action {
 			case 1:
