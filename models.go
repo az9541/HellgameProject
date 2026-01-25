@@ -30,4 +30,7 @@ const (
 	EventTypeResourceDiscovery = "resource_discovery"
 	EventTypeCultural          = "cultural"
 	EventTypeDanger            = "danger"
+
+	// Numerical constants
+	InfluenceToTakeOver = 0.4 // Порог влияния фракции для попытки захвата домена
 )

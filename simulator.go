@@ -15,7 +15,7 @@ type WorldSimulator struct {
 	// State
 	Factions   map[string]*FactionState
 	Domains    map[string]*DomainState
-	GlobalTime int64
+	GlobalTick int64
 
 	// Event tracking
 	EventLog []WorldEvent
@@ -65,11 +65,11 @@ type WorldEvent struct {
 
 // SimulationDelta - результат симуляции
 type SimulationDelta struct {
-	HoursSimulated int64
+	TicksSimulated int64
 	Events         []WorldEvent
 	FactionStates  map[string]*FactionState
 	DomainStates   map[string]*DomainState
-	GlobalTime     int64
+	GlobalTick     int64
 }
 
 // NewWorldSimulator создаёт новый симулятор
@@ -77,7 +77,7 @@ func NewWorldSimulator() *WorldSimulator {
 	sim := &WorldSimulator{
 		Factions:   createInitialFactions(),
 		Domains:    createInitialDomains(),
-		GlobalTime: 0,
+		GlobalTick: 0,
 		EventLog:   []WorldEvent{},
 		stop:       make(chan bool),
 	}
@@ -109,67 +109,53 @@ func (sim *WorldSimulator) Stop() {
 // ============ ОСНОВНАЯ СИМУЛЯЦИЯ ============
 
 // Simulate запускает симуляцию на N часов
-func (sim *WorldSimulator) Simulate(hours int64) *SimulationDelta {
+func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 	sim.mu.Lock()
 	defer sim.mu.Unlock()
 
-	startTime := sim.GlobalTime
-	endTime := startTime + hours
+	startTime := sim.GlobalTick
+	endTime := startTime + ticks
 
 	// Отслеживаем события, проходящие во время симуляции
 	newEvents := []WorldEvent{}
 
-	for hour := startTime; hour < endTime; hour++ {
-		sim.GlobalTime = hour
+	for tick := startTime; tick < endTime; tick++ {
+		sim.GlobalTick = tick
 
-		// Каждый игрово час есть фиксированное значение вероятности наступления события
-		if rand.Float64() < 0.3 { // 30% chance per hour
-			event := sim.generateHourlyEvent(hour)
+		// Каждый игровой час есть фиксированное значение вероятности наступления события
+		if rand.Float64() < 0.3 { // 30% chance per tick
+			event := sim.generateTickEvent(tick)
 			if event != nil {
 				sim.EventLog = append(sim.EventLog, *event)
 				newEvents = append(newEvents, *event)
 			}
 		}
 
-		// Every 12 hours: faction actions
-		if hour%12 == 0 {
-			sim.executeFactionActions()
-			keys := make([]string, 0, len(sim.Domains))
-			for k := range sim.Domains {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys) // детерминированный порядок
+		sim.executeFactionActions()
 
-			domainsSlice := make([]*DomainState, 0, len(keys))
-			for _, k := range keys {
-				domainsSlice = append(domainsSlice, sim.Domains[k])
-			}
+		keys := getSortedDomainKeys(sim.Domains) // детерминированный порядок
+		domainsSlice := getDomainsList(keys, sim.Domains)
 
-			// Запускаем интегратор для каждой фракции на 12 часов (параметр можно поменять)
-			for _, faction := range sim.Factions {
-				SimulateFactionExpansion(faction, domainsSlice, 12)
-			}
-
-			// Синхронизируем списки доменов у фракций
-			sim.syncFactionDomains()
+		for _, faction := range sim.Factions {
+			SimulateFactionExpansion(faction, domainsSlice, 1)
 		}
 
-		// Every 6 hours: domain stability changes
-		if hour%6 == 0 {
-			sim.updateDomainStability()
-		}
+		// Синхронизируем списки доменов у фракций
+		sim.syncFactionDomains()
+
+		sim.updateDomainStability()
 	}
 
 	// Return delta (only changes)
 	delta := &SimulationDelta{
-		HoursSimulated: hours,
+		TicksSimulated: ticks,
 		Events:         newEvents,
 		FactionStates:  sim.copyFactionStates(),
 		DomainStates:   sim.copyDomainStates(),
-		GlobalTime:     sim.GlobalTime,
+		GlobalTick:     sim.GlobalTick,
 	}
 
-	log.Printf("✅ Simulated %d hours (time: %d)", hours, sim.GlobalTime)
+	log.Printf("✅ Simulated %d ticks (time: %d)", ticks, sim.GlobalTick)
 	return delta
 }
 
@@ -200,9 +186,8 @@ func (sim *WorldSimulator) executeFactionActions() {
 				if domain.ControlledBy != faction.ID {
 					// проверить domain.Influence[faction.ID]
 					// если > 0.5, вызвать attemptDomainTakeover с новыми аргументами
-					_, ok := domain.Influence[faction.ID]
-					if domain.Influence != nil && ok {
-						sim.attemptDomainTakeover(faction, domain, domain.Influence[faction.ID])
+					if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver { // порог вынесен в константу?
+						sim.attemptDomainTakeover(faction, domain, infl)
 					}
 				}
 			}
@@ -224,33 +209,10 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	probability := baseProbability * (1.0 + influence)
 	if probability >= 0.6 {
 		sim.transferDomainControl(domain, attacker)
-		fmt.Printf("🎖️  %s takes control of %s", attacker.Name, domain.Name)
+		log.Printf("🎖️  %s takes control of %s", attacker.Name, domain.Name)
 	} else {
-		fmt.Printf("❗ %s failed to take control over %s. Attempt probability: %s\n", attacker.Name, domain.Name, probability)
+		log.Printf("❗ %s failed to take control over %s. Attempt probability: %.4f\n", attacker.Name, domain.Name, probability)
 	}
-	/*for _, domain := range sim.Domains {
-		if domain.ControlledBy == attacker.ID {
-			continue // Already controls it
-		}
-
-		// Check probability based on military force vs domain danger
-		probability := (attacker.MilitaryForce / 100) * (1 - float64(domain.DangerLevel)/10)
-
-		if rand.Float64() < probability {
-			defender := sim.Factions[domain.ControlledBy]
-			if defender == nil {
-				// Domain is uncontrolled, take it
-				domain.ControlledBy = attacker.ID
-				attacker.DomainsHeld = append(attacker.DomainsHeld, domain.ID)
-				attacker.Power += 5
-				log.Printf("🎖️  %s takes control of %s", attacker.Name, domain.Name)
-			} else {
-				// War between factions
-				outcome := sim.resolveFactionWar(attacker, defender, domain)
-				log.Printf("⚔️  War: %s(Attacker) vs %s(Defender) in %s → %s", attacker.Name, defender.Name, domain.Name, outcome)
-			}
-		}
-	}*/
 }
 
 func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
@@ -376,7 +338,7 @@ func (sim *WorldSimulator) runEventGenerator() {
 			return
 		case <-ticker.C:
 			sim.mu.Lock()
-			if event := sim.generateHourlyEvent(sim.GlobalTime); event != nil {
+			if event := sim.generateTickEvent(sim.GlobalTick); event != nil {
 				sim.EventLog = append(sim.EventLog, *event)
 			}
 			sim.mu.Unlock()
@@ -384,24 +346,24 @@ func (sim *WorldSimulator) runEventGenerator() {
 	}
 }
 
-func (sim *WorldSimulator) generateHourlyEvent(hour int64) *WorldEvent {
+func (sim *WorldSimulator) generateTickEvent(tick int64) *WorldEvent {
 	eventType := rand.Intn(5)
 
 	switch eventType {
 	case 0:
-		return sim.generateMysteryEvent(hour)
+		return sim.generateMysteryEvent(tick)
 	case 1:
-		return sim.generateResourceEvent(hour)
+		return sim.generateResourceEvent(tick)
 	case 2:
-		return sim.generateCulturalEvent(hour)
+		return sim.generateCulturalEvent(tick)
 	case 3:
-		return sim.generateDangerEvent(hour)
+		return sim.generateDangerEvent(tick)
 	default:
 		return nil
 	}
 }
 
-func (sim *WorldSimulator) generateMysteryEvent(hour int64) *WorldEvent {
+func (sim *WorldSimulator) generateMysteryEvent(tick int64) *WorldEvent {
 	domains := make([]*DomainState, 0)
 	for _, d := range sim.Domains {
 		domains = append(domains, d)
@@ -422,7 +384,7 @@ func (sim *WorldSimulator) generateMysteryEvent(hour int64) *WorldEvent {
 
 	return &WorldEvent{
 		ID:          generateID(),
-		Hour:        hour,
+		Hour:        tick,
 		Type:        "mystery",
 		Location:    domain.ID,
 		Title:       titles[rand.Intn(len(titles))],
@@ -431,7 +393,7 @@ func (sim *WorldSimulator) generateMysteryEvent(hour int64) *WorldEvent {
 	}
 }
 
-func (sim *WorldSimulator) generateResourceEvent(hour int64) *WorldEvent {
+func (sim *WorldSimulator) generateResourceEvent(tick int64) *WorldEvent {
 	domains := make([]*DomainState, 0)
 	for _, d := range sim.Domains {
 		if d.ControlledBy == FactionCorporateConsortium {
@@ -447,7 +409,7 @@ func (sim *WorldSimulator) generateResourceEvent(hour int64) *WorldEvent {
 
 	return &WorldEvent{
 		ID:          generateID(),
-		Hour:        hour,
+		Hour:        tick,
 		Type:        "resource_discovery",
 		Location:    domain.ID,
 		Title:       "New mineral deposits discovered",
@@ -456,7 +418,7 @@ func (sim *WorldSimulator) generateResourceEvent(hour int64) *WorldEvent {
 	}
 }
 
-func (sim *WorldSimulator) generateCulturalEvent(hour int64) *WorldEvent {
+func (sim *WorldSimulator) generateCulturalEvent(tick int64) *WorldEvent {
 	domains := make([]*DomainState, 0)
 	for _, d := range sim.Domains {
 		if d.ControlledBy == FactionRepentantCommunes {
@@ -472,7 +434,7 @@ func (sim *WorldSimulator) generateCulturalEvent(hour int64) *WorldEvent {
 
 	return &WorldEvent{
 		ID:          generateID(),
-		Hour:        hour,
+		Hour:        tick,
 		Type:        "cultural",
 		Location:    domain.ID,
 		Title:       "Community gathering brings hope",
@@ -481,7 +443,7 @@ func (sim *WorldSimulator) generateCulturalEvent(hour int64) *WorldEvent {
 	}
 }
 
-func (sim *WorldSimulator) generateDangerEvent(hour int64) *WorldEvent {
+func (sim *WorldSimulator) generateDangerEvent(tick int64) *WorldEvent {
 	domains := make([]*DomainState, 0)
 	for _, d := range sim.Domains {
 		if d.DangerLevel > 5 {
@@ -497,7 +459,7 @@ func (sim *WorldSimulator) generateDangerEvent(hour int64) *WorldEvent {
 
 	return &WorldEvent{
 		ID:          generateID(),
-		Hour:        hour,
+		Hour:        tick,
 		Type:        "danger",
 		Location:    domain.ID,
 		Title:       "Dangerous creature sighting",
@@ -508,9 +470,9 @@ func (sim *WorldSimulator) generateDangerEvent(hour int64) *WorldEvent {
 
 // ============ HELPERS ============
 
-func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, hours int) {
+func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, ticks int) {
 	n := len(domains)
-	if n == 0 || hours <= 0 {
+	if n == 0 || ticks <= 0 {
 		return
 	}
 
@@ -550,7 +512,7 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, hou
 	}
 
 	// Интегрируем
-	for h := 0; h < hours; h++ {
+	for h := 0; h < ticks; h++ {
 		prev := make([]float64, n)
 		copy(prev, u)
 		u = SolveKPGraph(u, neighbors, D, r, dt, substeps)
@@ -562,14 +524,14 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, hou
 				row += ", "
 			}
 		}
-		fmt.Printf("Faction %s hour %d densities: [%s]", faction.ID, h+1, row)
+		fmt.Printf("Faction %s tick %d densities: [%s]", faction.ID, h+1, row)
 
 		// 2) события захвата (пересечение порога)
-		for i := 0; i < n; i++ {
+		/*for i := 0; i < n; i++ {
 			if prev[i] <= 0.5 && u[i] > 0.5 {
 				fmt.Printf("  TAKEOVER: faction=%s domain=%s idx=%d new_density=%.3f", faction.ID, domains[i].ID, i, u[i])
 			}
-		}
+		}*/
 
 		// 3) агрегаты: count, max, center of mass
 		count := 0
@@ -864,10 +826,7 @@ func (sim *WorldSimulator) syncFactionDomains() {
 	}
 }
 
-// TODO: Доделать
 func (sim *WorldSimulator) transferDomainControl(domain *DomainState, newOwner *FactionState) {
-	sim.mu.Lock()
-	defer sim.mu.Unlock()
 	oldOwner := sim.Factions[domain.ControlledBy]
 
 	if newOwner != nil && oldOwner != nil && oldOwner.ID == newOwner.ID {
@@ -911,4 +870,21 @@ func (faction *FactionState) hasDomain(id string) bool {
 		}
 	}
 	return false
+}
+
+func getSortedDomainKeys(domains map[string]*DomainState) []string {
+	keys := make([]string, 0, len(domains))
+	for k := range domains {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func getDomainsList(keys []string, domains map[string]*DomainState) []*DomainState {
+	domainsSlice := make([]*DomainState, 0, len(keys))
+	for _, k := range keys {
+		domainsSlice = append(domainsSlice, domains[k])
+	}
+	return domainsSlice
 }

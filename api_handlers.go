@@ -88,15 +88,15 @@ func handleSimulate(w http.ResponseWriter, r *http.Request, sim *WorldSimulator)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
-		"hours_simulated": delta.HoursSimulated,
-		"current_time":    delta.GlobalTime,
+		"ticks_simulated": delta.TicksSimulated,
+		"current_time":    delta.GlobalTick,
 		"events_count":    len(delta.Events),
 		"events":          delta.Events,
 		"factions":        delta.FactionStates,
 		"domains":         delta.DomainStates,
 	})
 
-	log.Printf("✅ Simulated %d hours, generated %d events", req.Hours, len(delta.Events))
+	log.Printf("✅ Simulated %d ticks, generated %d events", req.Hours, len(delta.Events))
 }
 
 // handleGetWorldState - получить текущее состояние мира
@@ -106,7 +106,7 @@ func handleGetWorldState(w http.ResponseWriter, r *http.Request, sim *WorldSimul
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":         "ok",
-		"time":           sim.GlobalTime,
+		"time":           sim.GlobalTick,
 		"factions":       sim.copyFactionStates(),
 		"domains":        sim.copyDomainStates(),
 		"event_log_size": len(sim.EventLog),
