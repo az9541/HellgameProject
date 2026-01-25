@@ -89,15 +89,6 @@ func NewWorldSimulator() *WorldSimulator {
 func (sim *WorldSimulator) Start() {
 	log.Println("🚀 Starting world simulation goroutines...")
 
-	/*// Фракции воюют и торгуют
-	go sim.runFactionAI() // +, надо перенести
-
-	// В доменах происходят свои события
-	go sim.runDomainSimulation() // +, надо перенести
-
-	// Случайные события
-	go sim.runEventGenerator()
-	*/
 	go sim.runTimeLoop()
 
 	log.Println("✅ Simulation goroutines started")
@@ -202,33 +193,31 @@ func (sim *WorldSimulator) runTimeLoop() {
 
 // ============ ГОРУТИНЫ: ДЕЙСТВИЯ ФРАКЦИЙ ============
 
-func (sim *WorldSimulator) runFactionAI() {
-	ticker := time.NewTicker(30 * time.Second) // Тик проходит каждые 30 секунд игрового времени
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-sim.stop:
-			return
-		case <-ticker.C:
-			sim.mu.Lock()
-			sim.executeFactionActions()
-			sim.mu.Unlock()
-		}
-	}
-}
-
 func (sim *WorldSimulator) executeFactionActions() {
 	for _, faction := range sim.Factions {
-		// Пока что всё на рандоме. Что-то может СЛУЧИТЬСЯ и фракция начнёт ЧТО-ТО ДЕЛАЬТ
+		// Пока что всё на рандоме. Что-то может СЛУЧИТЬСЯ и фракция начнёт ЧТО-ТО ДЕЛАТЬ
 		if rand.Float64() < 0.4 { // 40% шанс на то, что ЧТО-ТО случится
 			action := rand.Intn(3)
+			// Выбираем самый перспективный домен
+			var topDomain *DomainState
+			var topInfluence float64
+
 			for _, domain := range sim.Domains {
-				if domain.ControlledBy != faction.ID {
-					if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver { // порог вынесен в константу?
-						sim.attemptDomainTakeover(faction, domain, infl)
+				if domain.ControlledBy == faction.ID {
+					continue
+				}
+				if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
+					if infl > topInfluence {
+						topInfluence = infl
+						topDomain = domain
 					}
 				}
+			}
+
+			if topDomain != nil {
+				sim.attemptDomainTakeover(faction, topDomain, topInfluence)
+			} else {
+				log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f)", faction.ID, InfluenceToTakeOver)
 			}
 			switch action {
 			case 1:
@@ -244,7 +233,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 
 func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain *DomainState, influence float64) {
 	// Find a domain not controlled by this faction
-	baseProbability := (attacker.MilitaryForce / 100) * (1 - float64(domain.DangerLevel)/10)
+	baseProbability := (attacker.MilitaryForce / 100) * (1 - float64(domain.DangerLevel)/20)
 	probability := baseProbability * (1.0 + influence)
 	if probability >= 0.6 {
 		sim.transferDomainControl(domain, attacker)
@@ -352,22 +341,6 @@ func (sim *WorldSimulator) runKPPSimulation() {
 	}
 }
 
-func (sim *WorldSimulator) runDomainSimulation() {
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-sim.stop:
-			return
-		case <-ticker.C:
-			sim.mu.Lock()
-			sim.updateDomainStability()
-			sim.mu.Unlock()
-		}
-	}
-}
-
 func (sim *WorldSimulator) updateDomainStability() {
 	for _, domain := range sim.Domains {
 		controller := sim.Factions[domain.ControlledBy]
@@ -398,24 +371,6 @@ func (sim *WorldSimulator) updateDomainStability() {
 }
 
 // ============ ГОРУТИНЫ: ГЕНЕРАЦИЯ СОБЫТИЙ ============
-
-func (sim *WorldSimulator) runEventGenerator() {
-	ticker := time.NewTicker(45 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-sim.stop:
-			return
-		case <-ticker.C:
-			sim.mu.Lock()
-			if event := sim.generateTickEvent(sim.GlobalTick); event != nil {
-				sim.EventLog = append(sim.EventLog, *event)
-			}
-			sim.mu.Unlock()
-		}
-	}
-}
 
 func (sim *WorldSimulator) generateTickEvent(tick int64) *WorldEvent {
 	eventType := rand.Intn(5)
