@@ -34,4 +34,11 @@ const (
 	// Numerical constants
 	InfluenceToTakeOver = 0.1 // Порог влияния фракции для попытки захвата домена
 	MinInfluence        = 0.01
+
+	// War constants
+	MinAttackStrengthRatio = 0.65  // Минимальное соотношение силы атакующего к защитнику (65%)
+	WarResourceCost        = 5.0   // Стоимость войны в ресурсах
+	BasePowerGain          = 10.0  // Базовое изменение power при победе
+	BasePowerLoss          = 8.0   // Базовое изменение power при поражении
+	MaxMilitaryForce       = 100.0 // Максимальная военная сила фракции
 )
