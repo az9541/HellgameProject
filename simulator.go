@@ -181,6 +181,8 @@ func (sim *WorldSimulator) runTimeLoop() {
 				sim.updateDomainStability()
 			}
 
+			sim.updateFactionMilitaryForce()
+
 			// 5. И только в конце обновляем время
 			sim.GlobalTick++
 
