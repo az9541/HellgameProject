@@ -41,4 +41,8 @@ const (
 	BasePowerGain          = 10.0  // Базовое изменение power при победе
 	BasePowerLoss          = 8.0   // Базовое изменение power при поражении
 	MaxMilitaryForce       = 100.0 // Максимальная военная сила фракции
+	// Константы длительной войны
+	DefenderSurrenderThreshold = 20.0
+	AttackerRetreatThreshold   = 15.0
+	MoraleChangeFactor         = 0.5
 )
