@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 )
 
@@ -61,16 +60,38 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			LosersID:       map[string]string{defender.ID: "zero_force"},
 		}
 		sim.Wars[war.ID] = war
-		log.Printf("EVENT=WAR_ENDED tick=%d attacker=%q defender=%q domain=%q reason=defender_zero_force",
-			sim.GlobalTick, attacker.Name, defender.Name, domain.Name)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "WAR_ENDED",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"attacker": attacker.Name,
+					"defender": defender.Name,
+					"domain":   domain.Name,
+					"reason":   "defender_zero_force",
+				},
+			})
+		}
 		return
 	}
 	// Проверка: атакующий должен иметь минимальное соотношение сил
 	strengthRatio := baseAttackerStrength / baseDefenderStrength
 	if strengthRatio < MinAttackStrengthRatio {
 		// Атакующий слишком слаб - отказывается от атаки
-		log.Printf("EVENT=WAR_ABORTED tick=%d attacker=%q defender=%q domain=%q reason=insufficient_strength ratio=%.3f (min=%.3f)",
-			sim.GlobalTick, attacker.Name, defender.Name, domain.Name, strengthRatio, MinAttackStrengthRatio)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "WAR_ABORTED",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"attacker": attacker.Name,
+					"defender": defender.Name,
+					"domain":   domain.Name,
+					"reason":   "insufficient_strength",
+					"ratio":    strengthRatio,
+					"min":      MinAttackStrengthRatio,
+				},
+			})
+		}
 		return
 	}
 
@@ -106,6 +127,18 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 
 	sim.Wars[war.ID] = war
 
-	log.Printf("EVENT=WAR_STARTED tick=%d attacker=%q defender=%q domain=%q a_str=%.1f d_str=%.1f ratio=%.3f",
-		sim.GlobalTick, attacker.Name, defender.Name, domain.Name, attackerStrength, defenderStrength, strengthRatio)
+	if sim.EventBus != nil {
+		sim.EventBus.Publish(GameEvent{
+			Type: "WAR_STARTED",
+			Tick: sim.GlobalTick,
+			Data: map[string]any{
+				"attacker": attacker.Name,
+				"defender": defender.Name,
+				"domain":   domain.Name,
+				"a_str":    attackerStrength,
+				"d_str":    defenderStrength,
+				"ratio":    strengthRatio,
+			},
+		})
+	}
 }
