@@ -9,6 +9,7 @@ import (
 func main() {
 	// Initialize simulator (the heart of the backend)
 	simulator := NewWorldSimulator()
+	StartEventLogger(simulator.EventBus, 200)
 
 	// Start background goroutines for world simulation
 	simulator.Start()
