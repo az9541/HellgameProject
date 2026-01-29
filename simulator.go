@@ -19,6 +19,7 @@ type WorldSimulator struct {
 	// Channels for goroutines
 	stop chan bool
 	Wars map[string]*WarState
+	EventBus *EventPublisher
 }
 
 // FactionState отслеживает состояние фракции
@@ -98,6 +99,7 @@ func NewWorldSimulator() *WorldSimulator {
 		GlobalTick: 0,
 		EventLog:   []WorldEvent{},
 		stop:       make(chan bool),
+		EventBus:   NewEventPublisher(),
 	}
 	sim.initializeFactionInfluence()
 	sim.Wars = make(map[string]*WarState)
