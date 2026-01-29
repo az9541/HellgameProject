@@ -1,5 +1,7 @@
 package main
 
+import "math/rand"
+
 // createInitialFactions создаёт начальные фракции мира
 func createInitialFactions() map[string]*FactionState {
 	return map[string]*FactionState{
@@ -61,9 +63,74 @@ func createInitialFactions() map[string]*FactionState {
 	}
 }
 
-// createInitialDomains создаёт начальные домены (9 кругов ада)
-func createInitialDomains() map[string]*DomainState {
-	return map[string]*DomainState{
+// generateDomainTopology создаёт случайный граф доменов с 1-2 соседями каждый.
+// Limbo (первый) и Betrayal (последний) не соединены напрямую.
+// Граф симметричный.
+//
+// tl;dr: моделируем хаотичность Ада через случайную топологию.
+// Почему так: KPP-уравнение на графе уже поддерживает произвольные соседства,
+// нам просто нужна адекватная топология. Ограничения (не более 2 соседей,
+// граничные домены не связаны) балансируют хаос с минимальной предсказуемостью.
+func generateDomainTopology(domains map[string]*DomainState, allDomainIDs []string) {
+	// Инициализируем пустые списки соседей
+	for _, domain := range domains {
+		domain.AdjacentDomains = []string{}
+	}
+
+	// Преобразуем список доменов в порядок: Limbo -> Betrayal
+	// allDomainIDs должен быть в правильном порядке из инициализации
+	n := len(allDomainIDs)
+
+	// Граф для отслеживания добавленных рёбер (чтобы избежать дубликатов)
+	edges := make(map[string]map[string]bool)
+	for _, id := range allDomainIDs {
+		edges[id] = make(map[string]bool)
+	}
+
+	// Для каждого домена генерируем 1-2 случайных соседей
+	for i, domainID := range allDomainIDs {
+		// Определяем, сколько соседей (1 или 2)
+		numNeighbors := 1 + rand.Intn(2) // 1 или 2
+
+		// Собираем кандидатов (все домены кроме себя)
+		candidates := []string{}
+		for j, candidateID := range allDomainIDs {
+			// Пропускаем сам домен
+			if i == j {
+				continue
+			}
+			// Граничный случай: Limbo (индекс 0) и Betrayal (индекс n-1) не соединены
+			if (i == 0 && j == n-1) || (i == n-1 && j == 0) {
+				continue
+			}
+			candidates = append(candidates, candidateID)
+		}
+
+		// Выбираем случайных соседей из кандидатов
+		for k := 0; k < numNeighbors && len(candidates) > 0; k++ {
+			// Случайный индекс в candidates
+			randIdx := rand.Intn(len(candidates))
+			neighborID := candidates[randIdx]
+
+			// Проверяем, нет ли уже этого ребра
+			if !edges[domainID][neighborID] {
+				edges[domainID][neighborID] = true
+				edges[neighborID][domainID] = true // симметричное ребро
+
+				// Добавляем в список соседей обоих доменов
+				domains[domainID].AdjacentDomains = append(domains[domainID].AdjacentDomains, neighborID)
+				domains[neighborID].AdjacentDomains = append(domains[neighborID].AdjacentDomains, domainID)
+			}
+
+			// Удаляем кандидата из списка, чтобы не выбрать его дважды
+			candidates = append(candidates[:randIdx], candidates[randIdx+1:]...)
+		}
+	}
+}
+
+// updateCreateInitialDomains — обновленная функция с вызовом генерации графа
+func createInitialDomains() (map[string]*DomainState, []string) {
+	domains := map[string]*DomainState{
 		DomainLimbo: {
 			ID:           DomainLimbo,
 			Name:         "Limbo",
@@ -155,4 +222,22 @@ func createInitialDomains() map[string]*DomainState {
 			Influence:    make(map[string]float64),
 		},
 	}
+
+	// Порядок доменов: от первого ко второму (важен для граничного случая)
+	allDomainIDs := []string{
+		DomainLimbo,
+		DomainLust,
+		DomainGluttony,
+		DomainGreed,
+		DomainWrath,
+		DomainHeresy,
+		DomainViolence,
+		DomainFraud,
+		DomainBetrayance,
+	}
+
+	// Генерируем случайную топологию графа
+	generateDomainTopology(domains, allDomainIDs)
+
+	return domains, allDomainIDs
 }
