@@ -16,9 +16,9 @@ type WorldSimulator struct {
 	// Event tracking
 	EventLog []WorldEvent
 	mu       sync.RWMutex
-
 	// Channels for goroutines
 	stop chan bool
+	Wars map[string]*WarState
 }
 
 // FactionState отслеживает состояние фракции
@@ -36,15 +36,36 @@ type FactionState struct {
 
 // DomainState отслеживает состояние домена
 type DomainState struct {
-	ID           string
-	Name         string
-	Stability    float64 // 0-100
-	ControlledBy string  // faction ID
-	DangerLevel  int     // 1-10
-	Population   int
-	Mood         string   // "stable", "unrest", "rebellion"
-	Events       []string // event IDs that happened here
-	Influence    map[string]float64
+	ID              string
+	Name            string
+	Stability       float64 // 0-100
+	ControlledBy    string  // faction ID
+	DangerLevel     int     // 1-10
+	Population      int
+	Mood            string   // "stable", "unrest", "rebellion"
+	Events          []string // event IDs that happened here
+	Influence       map[string]float64
+	AdjacentDomains []string // Neighbours to domain
+}
+
+type WarState struct {
+	ID             string // "war:<domainID>:<attackerID>:<defenderID>"
+	AttackerID     string
+	DefenderID     string
+	DomainID       string
+	StartTick      int64
+	LastUpdateTick int64
+	TicksDuration  int64
+	// Замороженные плотности влияния на момент начала войны
+	FrozenFactionsDenseties map[string]float64
+	// Динамика войны
+	Momentum       float64 // положительное — преимущество атакующего
+	AttackerMorale float64 // [0,100]
+	DefenderMorale float64 // [0,100]
+	// Итоги
+	IsOver    bool
+	WinnersID map[string]string
+	LosersID  map[string]string
 }
 
 // WorldEvent представляет событие в мире
@@ -70,14 +91,16 @@ type SimulationDelta struct {
 
 // NewWorldSimulator создаёт новый симулятор
 func NewWorldSimulator() *WorldSimulator {
+	domains, _ := createInitialDomains()
 	sim := &WorldSimulator{
 		Factions:   createInitialFactions(),
-		Domains:    createInitialDomains(),
+		Domains:    domains,
 		GlobalTick: 0,
 		EventLog:   []WorldEvent{},
 		stop:       make(chan bool),
 	}
 	sim.initializeFactionInfluence()
+	sim.Wars = make(map[string]*WarState)
 	return sim
 }
 
