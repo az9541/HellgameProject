@@ -58,9 +58,28 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	probability := baseProbability * (1.0 + influence)
 	if probability >= 0.6 {
 		sim.transferDomainControl(domain, attacker)
-		log.Printf("EVENT=DOMAIN_TAKEOVER tick=%d attacker=%q domain=%q", sim.GlobalTick, attacker.Name, domain.Name)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "DOMAIN_TAKEOVER",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"attacker": attacker.Name,
+					"domain":   domain.Name,
+				},
+			})
+		}
 	} else {
-		log.Printf("EVENT=TAKEOVER_FAILED tick=%d attacker=%q domain=%q probability=%.4f", sim.GlobalTick, attacker.Name, domain.Name, probability)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "TAKEOVER_FAILED",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"attacker":    attacker.Name,
+					"domain":      domain.Name,
+					"probability": probability,
+				},
+			})
+		}
 	}
 }
 
@@ -74,8 +93,20 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 	strengthRatio := baseAttackerStrength / baseDefenderStrength
 	if strengthRatio < MinAttackStrengthRatio {
 		// Атакующий слишком слаб - отказывается от атаки
-		log.Printf("EVENT=WAR_ABORTED tick=%d attacker=%q defender=%q domain=%q reason=insufficient_strength ratio=%.3f (min=%.3f)",
-			sim.GlobalTick, attacker.Name, defender.Name, domain.Name, strengthRatio, MinAttackStrengthRatio)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "WAR_ABORTED",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"attacker": attacker.Name,
+					"defender": defender.Name,
+					"domain":   domain.Name,
+					"reason":   "insufficient_strength",
+					"ratio":    strengthRatio,
+					"min":      MinAttackStrengthRatio,
+				},
+			})
+		}
 		return "war_aborted"
 	}
 
@@ -85,8 +116,20 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 	defenderStrength := baseDefenderStrength * (0.9 + rand.Float64()*0.2)
 
 	// Логируем начало конфликта
-	log.Printf("EVENT=WAR_STARTED tick=%d attacker=%q defender=%q domain=%q a_str=%.1f d_str=%.1f ratio=%.3f",
-		sim.GlobalTick, attacker.Name, defender.Name, domain.Name, attackerStrength, defenderStrength, strengthRatio)
+	if sim.EventBus != nil {
+		sim.EventBus.Publish(GameEvent{
+			Type: "WAR_STARTED",
+			Tick: sim.GlobalTick,
+			Data: map[string]any{
+				"attacker": attacker.Name,
+				"defender": defender.Name,
+				"domain":   domain.Name,
+				"a_str":    attackerStrength,
+				"d_str":    defenderStrength,
+				"ratio":    strengthRatio,
+			},
+		})
+	}
 
 	// Обе стороны тратят ресурсы на войну
 	attacker.Resources = maxFloat(attacker.Resources-WarResourceCost, 0)
@@ -146,8 +189,20 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 		}
 		sim.EventLog = append(sim.EventLog, warEvent)
 
-		log.Printf("EVENT=WAR_RESULT tick=%d result=VICTORY attacker=%q domain=%q margin=%.3f power_gain=%.1f power_loss=%.1f",
-			sim.GlobalTick, attacker.Name, domain.Name, victoryMargin, powerGain, powerLoss)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "WAR_RESULT",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"result":     "VICTORY",
+					"attacker":   attacker.Name,
+					"domain":     domain.Name,
+					"margin":     victoryMargin,
+					"power_gain": powerGain,
+					"power_loss": powerLoss,
+				},
+			})
+		}
 		return "attacker_victory"
 
 	} else {
@@ -193,8 +248,20 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 		}
 		sim.EventLog = append(sim.EventLog, defenseEvent)
 
-		log.Printf("EVENT=WAR_RESULT tick=%d result=DEFEAT attacker=%q domain=%q margin=%.3f power_gain=%.1f power_loss=%.1f",
-			sim.GlobalTick, attacker.Name, domain.Name, defenseMargin, defenderPowerGain, attackerPowerLoss)
+		if sim.EventBus != nil {
+			sim.EventBus.Publish(GameEvent{
+				Type: "WAR_RESULT",
+				Tick: sim.GlobalTick,
+				Data: map[string]any{
+					"result":     "DEFEAT",
+					"attacker":   attacker.Name,
+					"domain":     domain.Name,
+					"margin":     defenseMargin,
+					"power_gain": defenderPowerGain,
+					"power_loss": attackerPowerLoss,
+				},
+			})
+		}
 		return "defender_victory"
 	}
 }
@@ -224,7 +291,17 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	domain2.Stability = minFloat(domain2.Stability+10, 100)
 	faction.Resources += 10
 
-	log.Printf("EVENT=TRADE_ROUTE tick=%d from=%q to=%q by=%q", sim.GlobalTick, domain1.Name, domain2.Name, faction.Name)
+	if sim.EventBus != nil {
+		sim.EventBus.Publish(GameEvent{
+			Type: "TRADE_ROUTE",
+			Tick: sim.GlobalTick,
+			Data: map[string]any{
+				"from": domain1.Name,
+				"to":   domain2.Name,
+				"by":   faction.Name,
+			},
+		})
+	}
 }
 
 // addDomain добавляет домен в список контролируемых фракцией
