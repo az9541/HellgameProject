@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
-	"slices"
 )
 
 // executeFactionActions выполняет действия всех фракций
@@ -31,7 +29,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 		// Если есть кандидат — пробуем захват или приводим к войне
 		if topDomain != nil {
 			if topDomain.ControlledBy != "none" {
-				sim.resolveFactionWar(faction, sim.Factions[topDomain.ControlledBy], topDomain)
+				sim.StartWarTrigger(faction, sim.Factions[topDomain.ControlledBy], topDomain)
 			} else {
 				sim.attemptDomainTakeover(faction, topDomain, topInfluence)
 			}
@@ -79,179 +77,10 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	}
 }
 
-// resolveFactionWar разрешает войну между двумя фракциями за домен
+// resolveFactionWar больше не разрешает войну мгновенно — только инициирует её.
 func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
-	// Базовые силы с учётом влияния на домене
-	baseAttackerStrength := attacker.MilitaryForce * (1.0 + domain.Influence[attacker.ID])
-	baseDefenderStrength := defender.MilitaryForce * (1.0 + domain.Influence[defender.ID])
-
-	// Проверка: атакующий должен иметь минимальное соотношение сил
-	strengthRatio := baseAttackerStrength / baseDefenderStrength
-	if strengthRatio < MinAttackStrengthRatio {
-		// Атакующий слишком слаб - отказывается от атаки
-		sim.EventBus.Publish(GameEvent{
-			Type: "WAR_ABORTED",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"attacker": attacker.Name,
-				"defender": defender.Name,
-				"domain":   domain.Name,
-				"reason":   "insufficient_strength",
-				"ratio":    strengthRatio,
-				"min":      MinAttackStrengthRatio,
-			},
-		})
-		return "war_aborted"
-	}
-
-	// Добавляем случайный фактор (10% вариация)
-	randomFactor := 0.9 + rand.Float64()*0.2 // от 0.9 до 1.1
-	attackerStrength := baseAttackerStrength * randomFactor
-	defenderStrength := baseDefenderStrength * (0.9 + rand.Float64()*0.2)
-
-	// Логируем начало конфликта
-	sim.EventBus.Publish(GameEvent{
-		Type: "WAR_STARTED",
-		Tick: sim.GlobalTick,
-		Data: map[string]any{
-			"attacker": attacker.Name,
-			"defender": defender.Name,
-			"domain":   domain.Name,
-			"a_str":    attackerStrength,
-			"d_str":    defenderStrength,
-			"ratio":    strengthRatio,
-		},
-	})
-
-	// Обе стороны тратят ресурсы на войну
-	attacker.Resources = maxFloat(attacker.Resources-WarResourceCost, 0)
-	defender.Resources = maxFloat(defender.Resources-WarResourceCost, 0)
-
-	// Вычисляем соотношение сил в битве для определения интенсивности
-	battleRatio := attackerStrength / defenderStrength
-	victoryMargin := battleRatio - 1.0 // насколько больше победитель (0.0 = равные силы)
-
-	if attackerStrength > defenderStrength {
-		// ========== АТАКУЮЩИЙ ПОБЕДИЛ ==========
-
-		// Передаём домен атакующему
-		sim.transferDomainControl(domain, attacker)
-
-		// Динамическое изменение power в зависимости от победы
-		// Чем больше превосходство - тем больше бонус, но с убывающей отдачей
-		powerGainMultiplier := 1.0 + victoryMargin*0.5 // от 1.0 до ~1.5
-		powerGain := BasePowerGain * powerGainMultiplier
-
-		// Поражение защитника зависит от того, насколько он был слабее
-		powerLossMultiplier := 1.0 + (1.0/strengthRatio-1.0)*0.3 // больше потерь если был намного слабее
-		powerLoss := BasePowerLoss * powerLossMultiplier
-
-		attacker.Power = minFloat(attacker.Power+powerGain, 100)
-		defender.Power = maxFloat(defender.Power-powerLoss, 0)
-
-		// Потери военной силы пропорциональны интенсивности битвы
-		// Чем ровнее была битва - тем больше потерь
-		if victoryMargin < 0.2 { // очень близкая победа
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-3, 0)
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-5, 0)
-		} else if victoryMargin < 0.5 { // средняя победа
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-2, 0)
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-4, 0)
-		} else { // лёгкая победа
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-1, 0)
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-3, 0)
-		}
-
-		// Последствия для домена зависят от интенсивности битвы
-		stabilityLoss := 10.0 + victoryMargin*10.0 // от 10 до 20
-		domain.Stability = maxFloat(domain.Stability-stabilityLoss, 0)
-		domain.Mood = "conquered"
-
-		// Создаем событие
-		warEvent := WorldEvent{
-			ID:       generateID(),
-			Tick:     sim.GlobalTick,
-			Type:     "faction_war",
-			Location: domain.ID,
-			Title:    fmt.Sprintf("%s conquered %s", attacker.Name, domain.Name),
-			Description: fmt.Sprintf("After a fierce battle, %s seized control from %s. Victory margin: %.1f%%",
-				attacker.Name, defender.Name, victoryMargin*100),
-			Consequence: fmt.Sprintf("Power: %s +%.1f, %s -%.1f", attacker.Name, powerGain, defender.Name, powerLoss),
-			Factions:    []string{attacker.ID, defender.ID},
-		}
-		sim.EventLog = append(sim.EventLog, warEvent)
-
-		sim.EventBus.Publish(GameEvent{
-			Type: "WAR_RESULT",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"result":     "VICTORY",
-				"attacker":   attacker.Name,
-				"domain":     domain.Name,
-				"margin":     victoryMargin,
-				"power_gain": powerGain,
-				"power_loss": powerLoss,
-			},
-		})
-		return "attacker_victory"
-
-	} else {
-		// ========== ЗАЩИТНИК ОТБИЛСЯ ==========
-
-		// Вычисляем насколько защитник был сильнее
-		defenseMargin := defenderStrength/attackerStrength - 1.0
-
-		// Динамическое изменение power
-		// Защитник получает бонус, но меньше чем при победе атакующего
-		// Атакующий теряет больше, если был намного слабее
-		defenderPowerGain := BasePowerGain * 0.4 * (1.0 + defenseMargin*0.3)           // от 4 до ~5.2
-		attackerPowerLoss := BasePowerLoss * 0.5 * (1.0 + (1.0/strengthRatio-1.0)*0.5) // больше потерь если был слабее
-
-		defender.Power = minFloat(defender.Power+defenderPowerGain, 100)
-		attacker.Power = maxFloat(attacker.Power-attackerPowerLoss, 0)
-
-		// Потери военной силы
-		if defenseMargin < 0.2 { // очень близкая защита
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-2, 0)
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-4, 0)
-		} else if defenseMargin < 0.5 { // средняя защита
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-1, 0)
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-3, 0)
-		} else { // лёгкая защита
-			defender.MilitaryForce = maxFloat(defender.MilitaryForce-0.5, 0)
-			attacker.MilitaryForce = maxFloat(attacker.MilitaryForce-2, 0)
-		}
-
-		// Домен получает небольшой урон от попытки захвата
-		domain.Stability = maxFloat(domain.Stability-5, 0)
-
-		// Создаем событие
-		defenseEvent := WorldEvent{
-			ID:          generateID(),
-			Tick:        sim.GlobalTick,
-			Type:        "faction_war",
-			Location:    domain.ID,
-			Title:       fmt.Sprintf("%s defended %s", defender.Name, domain.Name),
-			Description: fmt.Sprintf("%s successfully repelled the attack from %s.", defender.Name, attacker.Name),
-			Consequence: fmt.Sprintf("Power: %s +%.1f, %s -%.1f", defender.Name, defenderPowerGain, attacker.Name, attackerPowerLoss),
-			Factions:    []string{attacker.ID, defender.ID},
-		}
-		sim.EventLog = append(sim.EventLog, defenseEvent)
-
-		sim.EventBus.Publish(GameEvent{
-			Type: "WAR_RESULT",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"result":     "DEFEAT",
-				"attacker":   attacker.Name,
-				"domain":     domain.Name,
-				"margin":     defenseMargin,
-				"power_gain": defenderPowerGain,
-				"power_loss": attackerPowerLoss,
-			},
-		})
-		return "defender_victory"
-	}
+	sim.StartWarTrigger(attacker, defender, domain)
+	return "war_started"
 }
 
 // establishTradeRoute устанавливает торговый маршрут между двумя доменами
@@ -319,17 +148,16 @@ func (faction *FactionState) hasDomain(id string) bool {
 }
 
 func (sim *WorldSimulator) updateFactionMilitaryForce() {
-	// Получаем события в текущем тике
-	factionsInWar := make([]string, 0)
-	for _, event := range sim.EventLog {
-		if event.Tick == sim.GlobalTick {
-			if event.Type == "faction_war" {
-				factionsInWar = append(factionsInWar, event.Factions...)
-			}
+	factionsInWar := make(map[string]struct{})
+	for _, war := range sim.Wars {
+		if war == nil || war.IsOver {
+			continue
 		}
+		factionsInWar[war.AttackerID] = struct{}{}
+		factionsInWar[war.DefenderID] = struct{}{}
 	}
 	for _, faction := range sim.Factions {
-		if slices.Contains(factionsInWar, faction.ID) {
+		if _, ok := factionsInWar[faction.ID]; ok {
 			faction.MilitaryForce = minFloat(faction.MilitaryForce+0.1, MaxMilitaryForce)
 		} else {
 			faction.MilitaryForce = minFloat(faction.MilitaryForce+1, MaxMilitaryForce)
