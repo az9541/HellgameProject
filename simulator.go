@@ -17,8 +17,8 @@ type WorldSimulator struct {
 	EventLog []WorldEvent
 	mu       sync.RWMutex
 	// Channels for goroutines
-	stop chan bool
-	Wars map[string]*WarState
+	stop     chan bool
+	Wars     map[string]*WarState
 	EventBus *EventPublisher
 }
 
@@ -157,6 +157,7 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 		sim.syncFactionDomains()
 
 		sim.updateDomainStability()
+		sim.UpdateWars()
 	}
 
 	// Return delta (only changes)
@@ -207,6 +208,7 @@ func (sim *WorldSimulator) runTimeLoop() {
 			}
 
 			sim.updateFactionMilitaryForce()
+			sim.UpdateWars()
 
 			// 5. И только в конце обновляем время
 			sim.GlobalTick++
