@@ -29,6 +29,9 @@ func (ep *EventPublisher) Subscribe(buffer int) chan GameEvent {
 }
 
 func (ep *EventPublisher) Publish(event GameEvent) {
+	if ep == nil {
+		return
+	}
 	ep.mu.RLock()
 	subs := append([]chan GameEvent(nil), ep.subscribers...)
 	ep.mu.RUnlock()

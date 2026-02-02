@@ -60,38 +60,34 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			LosersID:       map[string]string{defender.ID: "zero_force"},
 		}
 		sim.Wars[war.ID] = war
-		if sim.EventBus != nil {
-			sim.EventBus.Publish(GameEvent{
-				Type: "WAR_ENDED",
-				Tick: sim.GlobalTick,
-				Data: map[string]any{
-					"attacker": attacker.Name,
-					"defender": defender.Name,
-					"domain":   domain.Name,
-					"reason":   "defender_zero_force",
-				},
-			})
-		}
+		sim.EventBus.Publish(GameEvent{
+			Type: "WAR_ENDED",
+			Tick: sim.GlobalTick,
+			Data: map[string]any{
+				"attacker": attacker.Name,
+				"defender": defender.Name,
+				"domain":   domain.Name,
+				"reason":   "defender_zero_force",
+			},
+		})
 		return
 	}
 	// Проверка: атакующий должен иметь минимальное соотношение сил
 	strengthRatio := baseAttackerStrength / baseDefenderStrength
 	if strengthRatio < MinAttackStrengthRatio {
 		// Атакующий слишком слаб - отказывается от атаки
-		if sim.EventBus != nil {
-			sim.EventBus.Publish(GameEvent{
-				Type: "WAR_ABORTED",
-				Tick: sim.GlobalTick,
-				Data: map[string]any{
-					"attacker": attacker.Name,
-					"defender": defender.Name,
-					"domain":   domain.Name,
-					"reason":   "insufficient_strength",
-					"ratio":    strengthRatio,
-					"min":      MinAttackStrengthRatio,
-				},
-			})
-		}
+		sim.EventBus.Publish(GameEvent{
+			Type: "WAR_ABORTED",
+			Tick: sim.GlobalTick,
+			Data: map[string]any{
+				"attacker": attacker.Name,
+				"defender": defender.Name,
+				"domain":   domain.Name,
+				"reason":   "insufficient_strength",
+				"ratio":    strengthRatio,
+				"min":      MinAttackStrengthRatio,
+			},
+		})
 		return
 	}
 
@@ -127,18 +123,16 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 
 	sim.Wars[war.ID] = war
 
-	if sim.EventBus != nil {
-		sim.EventBus.Publish(GameEvent{
-			Type: "WAR_STARTED",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"attacker": attacker.Name,
-				"defender": defender.Name,
-				"domain":   domain.Name,
-				"a_str":    attackerStrength,
-				"d_str":    defenderStrength,
-				"ratio":    strengthRatio,
-			},
-		})
-	}
+	sim.EventBus.Publish(GameEvent{
+		Type: "WAR_STARTED",
+		Tick: sim.GlobalTick,
+		Data: map[string]any{
+			"attacker": attacker.Name,
+			"defender": defender.Name,
+			"domain":   domain.Name,
+			"a_str":    attackerStrength,
+			"d_str":    defenderStrength,
+			"ratio":    strengthRatio,
+		},
+	})
 }
