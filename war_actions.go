@@ -212,49 +212,82 @@ func (sim *WorldSimulator) UpdateWars() {
 			continue
 		}
 
-		forceRatio := baseAttackerStrength / baseDefenderStrength
+		// ============ ЗАКОН ЛАНЧЕСТЕРА-ОСИПОВА (квадратичный) ============
+		// Коэффициенты эффективности с учётом морали и влияния на домене
+		// Мораль влияет на эффективность бойцов: низкая мораль = менее эффективный бой
+		moraleFactor := func(morale float64) float64 {
+			// Нелинейная зависимость: при морали 100 -> 1.0, при 50 -> 0.7, при 0 -> 0.3
+			return 0.3 + 0.7*(morale/100.0)
+		}
 
-		// Фактор разницы влияния в виде логарифма
-		forceLogFactor := makeLog(forceRatio)
+		// Штраф за опасность домена (влияет на обе стороны)
+		dangerModifier := 1.0 - float64(domain.DangerLevel)/200.0 // от 0.95 до 0.5
 
-		// Расчёт штрафа за опасность домена.
-		dangerPenalty := float64(domain.DangerLevel) / 100.0
+		// Бонус/штраф за разницу влияния на домене (тактическое преимущество)
+		// influenceRatio > 0 → атакующий знает территорию лучше
+		influenceBonus := 1.0 + influenceRatio*0.2 // ±20% к эффективности
 
-		// Рандомный фактор
-		randomFactor := rand.Float64()*0.2 - 0.1 // от -0.1 до +0.1
+		// Коэффициенты эффективности (alpha для атакующего, beta для защитника)
+		// Защитник имеет небольшое преимущество (+10%) за оборону
+		alphaBase := 0.01 * (1.0 + frozenAttackerDensity) * moraleFactor(war.AttackerMorale) * dangerModifier * influenceBonus
+		betaBase := 0.01 * (1.0 + frozenDefenderDensity) * moraleFactor(war.DefenderMorale) * dangerModifier * 1.1 / influenceBonus
 
-		// Эмпирические коэффициенты влияния, разницы сил и опасности. Можно будет потом вынести в конфиг, пока что подбираем наугад.
-		influenceCoef := 0.4
-		forceCoef := 0.6
-		dangerCoef := 0.1
+		// Стохастический элемент (±10% вариация для каждой стороны)
+		alphaRandom := alphaBase * (0.9 + rand.Float64()*0.2)
+		betaRandom := betaBase * (0.9 + rand.Float64()*0.2)
 
-		// Расчёт изменения момента войны
-		momentumChange := influenceCoef*influenceRatio + forceCoef*forceLogFactor - dangerCoef*dangerPenalty + randomFactor
+		// Потери по квадратичному закону Ланчестера за один тик
+		// dA/dt = -beta * B, dB/dt = -alpha * A
+		attackerLosses := betaRandom * baseDefenderStrength
+		defenderLosses := alphaRandom * baseAttackerStrength
+
+		// Применяем потери к военной силе
+		attacker.MilitaryForce = clamp(attacker.MilitaryForce-attackerLosses, 0, 100)
+		defender.MilitaryForce = clamp(defender.MilitaryForce-defenderLosses, 0, 100)
+
+		// Расход ресурсов (пропорционален интенсивности боя)
+		const resourceCostFactor = 0.05
+		attackerResourceCost := resourceCostFactor * (1.0 + attackerLosses)
+		defenderResourceCost := resourceCostFactor * (1.0 + defenderLosses) * 0.8 // защитник тратит меньше ресурсов
+
+		attacker.Resources = clamp(attacker.Resources-attackerResourceCost, 0, 100)
+		defender.Resources = clamp(defender.Resources-defenderResourceCost, 0, 100)
+
+		// Инвариант Ланчестера для определения momentum
+		// L = alpha * A² - beta * B²
+		// Если L > 0, преимущество у атакующего; если L < 0, у защитника
+		lanchesterInvariant := alphaRandom*baseAttackerStrength*baseAttackerStrength -
+			betaRandom*baseDefenderStrength*baseDefenderStrength
+
+		// Нормализуем инвариант для momentum (стохастический элемент уже учтён в alpha/beta)
+		momentumChange := lanchesterInvariant * 0.001 // масштабируем для разумных значений
 
 		war.Momentum += momentumChange
 		war.TicksDuration++
 		war.LastUpdateTick = sim.GlobalTick
 
-		// Обновление морали участников войны. Если момент войны положительный, мораль атакующего растёт, а защитника падает, и наоборот.
-		if momentumChange > 0 {
-			war.AttackerMorale = clamp(war.AttackerMorale+math.Abs(momentumChange), 0, 100)
-			war.DefenderMorale = clamp(war.DefenderMorale-math.Abs(momentumChange), 0, 100)
-		} else {
-			war.DefenderMorale = clamp(war.DefenderMorale+math.Abs(momentumChange), 0, 100)
+		// Обновление морали участников войны
+		// Мораль зависит от соотношения потерь: больше потерь = падение морали
+		lossRatio := 0.0
+		if attackerLosses+defenderLosses > 0 {
+			lossRatio = (defenderLosses - attackerLosses) / (attackerLosses + defenderLosses)
 		}
 
-		// Изменение военной силы участников войны.
-		// Сейчас стоимость участия войны фиксирована, можно будет потом сделать зависимой от длительности войны и других факторов.
-		const (
-			warCostForce     = 0.2
-			warCostResources = 0.1
-		)
+		// Стохастический элемент в изменении морали (±5%)
+		moraleRandomFactor := 0.95 + rand.Float64()*0.1
 
-		attacker.MilitaryForce = clamp(attacker.MilitaryForce-warCostForce, 0, 100)
-		defender.MilitaryForce = clamp(defender.MilitaryForce-warCostForce*0.8, 0, 100)
+		// Базовое изменение морали
+		baseMoraleChange := math.Abs(lossRatio) * 3.0 * moraleRandomFactor
 
-		attacker.Resources = clamp(attacker.Resources-warCostResources, 0, 100)
-		defender.Resources = clamp(defender.Resources-warCostResources*0.8, 0, 100)
+		if lossRatio > 0 {
+			// Защитник несёт больше потерь → мораль атакующего растёт, защитника падает
+			war.AttackerMorale = clamp(war.AttackerMorale+baseMoraleChange, 0, 100)
+			war.DefenderMorale = clamp(war.DefenderMorale-baseMoraleChange*1.2, 0, 100) // потери бьют по морали сильнее
+		} else {
+			// Атакующий несёт больше потерь
+			war.DefenderMorale = clamp(war.DefenderMorale+baseMoraleChange, 0, 100)
+			war.AttackerMorale = clamp(war.AttackerMorale-baseMoraleChange*1.2, 0, 100)
+		}
 
 		// Проверка условий окончания войны (Сдача защитником, отступление атакующего, истощение ресурсов)
 		if war.DefenderMorale <= 0 || defender.MilitaryForce <= 0 || defender.Resources <= 0 {
