@@ -59,6 +59,11 @@ type WarState struct {
 	TicksDuration  int64
 	// Замороженные плотности влияния на момент начала войны
 	FrozenFactionsDenseties map[string]float64
+	// Выделенные контингенты на войну (фиксируются при старте)
+	AttackerCommittedForce float64 // начальный контингент атакующего
+	DefenderCommittedForce float64 // начальный контингент защитника
+	AttackerCurrentForce   float64 // текущие силы контингента атакующего
+	DefenderCurrentForce   float64 // текущие силы контингента защитника
 	// Динамика войны
 	Momentum       float64 // положительное — преимущество атакующего
 	AttackerMorale float64 // [0,100]
