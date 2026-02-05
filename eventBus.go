@@ -5,6 +5,46 @@ import (
 	"sync"
 )
 
+type IBuilderGameEvent interface {
+	SetType(string) IBuilderGameEvent
+	SetTick(int64) IBuilderGameEvent
+	SetData(map[string]any) IBuilderGameEvent
+	Build() GameEvent
+}
+
+type BuilderWarEvent struct {
+	Type string
+	Tick int64
+	Data map[string]any
+}
+
+func NewBuilderWarEvent() *BuilderWarEvent {
+	return &BuilderWarEvent{}
+}
+
+func (b *BuilderWarEvent) SetType(t string) IBuilderGameEvent {
+	b.Type = t
+	return b
+}
+
+func (b *BuilderWarEvent) SetTick(t int64) IBuilderGameEvent {
+	b.Tick = t
+	return b
+}
+
+func (b *BuilderWarEvent) SetData(d map[string]any) IBuilderGameEvent {
+	b.Data = d
+	return b
+}
+
+func (b *BuilderWarEvent) Build() GameEvent {
+	return GameEvent{
+		Type: b.Type,
+		Tick: b.Tick,
+		Data: b.Data,
+	}
+}
+
 type GameEvent struct {
 	Type string
 	Tick int64
