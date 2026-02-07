@@ -37,14 +37,18 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		return
 	}
 
+	// Рассчитываем осведомлённость акатующего о силе защитника на домене
+	attackerAwareness := awarenessFromInfluence(domain.Influence[attacker.ID])
+
 	// Базовые силы с учётом влияния на домене
 	baseAttackerStrength := attacker.MilitaryForce * (1.0 + domain.Influence[attacker.ID])
 	baseDefenderStrength := defender.MilitaryForce * (1.0 + domain.Influence[defender.ID])
+	estimateDefenderStrength := estimateForceWithAwareness(baseDefenderStrength, attackerAwareness)
 
 	// Проверка: атакующий должен иметь минимальное соотношение сил
 	strengthRatio := 0.0
-	if baseDefenderStrength > 0 {
-		strengthRatio = baseAttackerStrength / baseDefenderStrength
+	if estimateDefenderStrength > 0 {
+		strengthRatio = baseAttackerStrength / estimateDefenderStrength
 	}
 
 	// Расчёт выделяемого контингента (40-60% доступных сил)
@@ -82,10 +86,12 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		sim.Wars[war.ID] = war
 		gameEventBuillder := NewBuilderWarEvent()
 		gameEventBuillder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-			"attacker": attacker.Name,
-			"defender": defender.Name,
-			"domain":   domain.Name,
-			"reason":   "defender_zero_force",
+			"attacker":                attacker.Name,
+			"defender":                defender.Name,
+			"domain":                  domain.Name,
+			"reason":                  "defender_zero_force",
+			"actual_defender_force":   baseDefenderStrength,
+			"estimate_defender_force": estimateDefenderStrength,
 		})
 		sim.EventBus.Publish(gameEventBuillder.Build())
 		sim.FinishWar(war, attacker.ID, defender.ID, domain)
@@ -97,12 +103,14 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		// Атакующий слишком слаб - отказывается от атаки
 		gameEventBuilder := NewBuilderWarEvent()
 		gameEventBuilder.SetType("WAR_ABORTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-			"attacker": attacker.Name,
-			"defender": defender.Name,
-			"domain":   domain.Name,
-			"reason":   "insufficient_strength",
-			"ratio":    strengthRatio,
-			"min":      MinAttackStrengthRatio,
+			"attacker":                attacker.Name,
+			"defender":                defender.Name,
+			"domain":                  domain.Name,
+			"reason":                  "insufficient_strength",
+			"ratio":                   strengthRatio,
+			"min":                     MinAttackStrengthRatio,
+			"actual_defender_force":   baseDefenderStrength,
+			"estimate_defender_force": estimateDefenderStrength,
 		})
 		sim.EventBus.Publish(gameEventBuilder.Build())
 		return
@@ -146,14 +154,16 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 
 	gameEventBuilder := NewBuilderWarEvent()
 	gameEventBuilder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-		"attacker":           attacker.Name,
-		"defender":           defender.Name,
-		"domain":             domain.Name,
-		"attacker_committed": attackerCommitted,
-		"defender_committed": defenderCommitted,
-		"attacker_remaining": attacker.MilitaryForce,
-		"defender_remaining": defender.MilitaryForce,
-		"ratio":              strengthRatio,
+		"attacker":                attacker.Name,
+		"defender":                defender.Name,
+		"domain":                  domain.Name,
+		"attacker_committed":      attackerCommitted,
+		"defender_committed":      defenderCommitted,
+		"attacker_remaining":      attacker.MilitaryForce,
+		"defender_remaining":      defender.MilitaryForce,
+		"ratio":                   strengthRatio,
+		"actual_defender_force":   baseDefenderStrength,
+		"estimate_defender_force": estimateDefenderStrength,
 	})
 	sim.EventBus.Publish(gameEventBuilder.Build())
 }

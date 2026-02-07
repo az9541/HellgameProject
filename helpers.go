@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"math/rand"
 )
 
 // minFloat возвращает минимальное из двух float64 значений
@@ -55,4 +56,20 @@ func makeLog(forceRatio float64) float64 {
 		forceFactor = -1
 	}
 	return forceFactor
+}
+
+func awarenessFromInfluence(influence float64) float64 {
+	if influence <= 0 {
+		return MinAwareness
+	}
+	a := MinAwareness + (1.0-MinAwareness)*(math.Log(1+InfluenceToAwarenessFactor*influence)/math.Log(1+InfluenceToAwarenessFactor))
+	return clamp(a, MinAwareness, 1.0)
+}
+
+func estimateForceWithAwareness(force, awareness float64) float64 {
+	// Добавляем рандома. Оценка может быть как в большую сторону, так и в меньшую
+	// Если фактор шума положителен, то оценка завышается, если отрицателен — занижается
+	maxNoise := 0.4
+	noise := (rand.Float64()*2 - 1) * maxNoise * (1 - awareness)
+	return force * (1 + noise)
 }

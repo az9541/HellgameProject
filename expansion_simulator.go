@@ -33,29 +33,69 @@ func (sim *WorldSimulator) runKPPSimulation() {
 	// Пересчитываем физику для каждой фракции один раз
 	keys := getSortedDomainKeys(sim.Domains)
 	domainsSlice := getDomainsList(keys, sim.Domains)
+	if len(domainsSlice) == 0 || len(sim.Factions) == 0 {
+		return
+	}
 
+	newInfluence := make(map[string][]float64, len(sim.Factions))
 	for _, faction := range sim.Factions {
-		SimulateFactionExpansion(faction, domainsSlice, 1)
+		newInfluence[faction.ID] = SimulateFactionExpansion(faction, domainsSlice, 1)
+	}
+
+	// Нормализуем влияние так, чтобы сумма по домену была 1.0
+	for i, domain := range domainsSlice {
+		sum := 0.0
+		for _, densities := range newInfluence {
+			if i < len(densities) {
+				sum += densities[i]
+			}
+		}
+		if sum <= 0 {
+			equal := 1.0 / float64(len(newInfluence))
+			for factionID := range newInfluence {
+				domain.Influence[factionID] = equal
+			}
+			continue
+		}
+		for factionID, densities := range newInfluence {
+			if i < len(densities) {
+				domain.Influence[factionID] = densities[i] / sum
+			}
+		}
+	}
+
+	for factionID := range newInfluence {
+		row := ""
+		for i := 0; i < len(domainsSlice); i++ {
+			row += fmt.Sprintf("%.3f", domainsSlice[i].Influence[factionID])
+			if i < len(domainsSlice)-1 {
+				row += ", "
+			}
+		}
+		log.Printf("EXPANSION_DENSITIES_NORMALIZED faction=%q tick=%d densities=[%s]", factionID, sim.GlobalTick, row)
 	}
 }
 
 // SimulateFactionExpansion симулирует распространение влияния фракции по доменам
-func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, ticks int) {
+func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, ticks int) []float64 {
 	n := len(domains)
 	if n == 0 || ticks <= 0 {
-		return
+		return nil
 	}
 
 	neighbors := buildNeighborsFromDomains(domains)
 
-	// Начальное распределение: 1.0 в доменах, контролируемых фракцией
+	// Начальное распределение: текущее влияние, чтобы динамика была накопительной
 	u := make([]float64, n)
 	for i := 0; i < n; i++ {
-		if domains[i].ControlledBy == faction.ID {
-			u[i] = 1.0
-		} else {
+		u[i] = domains[i].Influence[faction.ID]
+		if u[i] <= 0 {
 			u[i] = MinInfluence
 		}
+		if domains[i].ControlledBy == faction.ID && u[i] < 1.0 {
+			u[i] = 1.0
+		}
+		u[i] = clamp(u[i], MinInfluence, 1.0)
 	}
 
 	// Параметры модели (настройте по вкусу или добавьте поля в FactionState)
@@ -94,7 +134,7 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 				row += ", "
 			}
 		}
-		log.Printf("EXPANSION_DENSITIES faction=%q step=%d densities=[%s]", faction.ID, h+1, row)
+		//log.Printf("EXPANSION_DENSITIES faction=%q step=%d densities=[%s]", faction.ID, h+1, row)
 
 		// 2) события захвата (пересечение порога)
 		/*for i := 0; i < n; i++ {
@@ -125,17 +165,6 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 		log.Printf("EXPANSION_METRICS=faction=%q step=%d controlled=%d max=%.3f mean=%.3f com=%.2f", faction.ID, h+1, count, maxv, sum/float64(n), com)
 	}
 
-	// Применяем результат к реальным доменам
-	for i, density := range u {
-		domains[i].Influence[faction.ID] = density // В домене влияние фракции меняется на величину density
-		/*
-			if density > 0.5 {
-				// TODO!!! Добавить не простой переход при превышении порога плотности, а реакцию других фракций
-				domains[i].ControlledBy = faction.ID
-			}
-		*/
-	}
-
 	type pair struct {
 		id      string
 		density float64
@@ -153,4 +182,5 @@ func SimulateFactionExpansion(faction *FactionState, domains []*DomainState, tic
 		log.Printf("EXPANSION_METRICS=TOP_TAKEOVER_CANDIDATE faction=%q rank=%d domain=%q density=%.3f", faction.ID, i+1, pairs[i].id, pairs[i].density)
 	}
 	log.Printf("\n_____________________________________")
+	return u
 }
