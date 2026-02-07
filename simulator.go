@@ -151,12 +151,7 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 
 		sim.executeFactionActions()
 
-		keys := getSortedDomainKeys(sim.Domains) // детерминированный порядок
-		domainsSlice := getDomainsList(keys, sim.Domains)
-
-		for _, faction := range sim.Factions {
-			SimulateFactionExpansion(faction, domainsSlice, 1)
-		}
+		sim.runKPPSimulation()
 
 		// Синхронизируем списки доменов у фракций
 		sim.syncFactionDomains()
