@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"math/rand"
 	"sync"
 	"time"
 )
@@ -126,50 +125,58 @@ func (sim *WorldSimulator) Stop() {
 	log.Println("Simulation stopped")
 }
 
+func (sim *WorldSimulator) Tick() {
+	defer sim.mu.Unlock()
+	sim.mu.Lock()
+	sim.runKPPSimulation()
+	if sim.GlobalTick%6 == 0 {
+		sim.executeFactionActions()
+	}
+	// 3. Раз в 9 тиков (45 сек) происходят случайные события
+	if sim.GlobalTick%9 == 0 {
+		event := sim.generateTickEvent(sim.GlobalTick)
+		if event != nil {
+			sim.EventLog = append(sim.EventLog, *event)
+		}
+	}
+	// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
+	if sim.GlobalTick%12 == 0 {
+		sim.updateDomainStability()
+	}
+	sim.updateFactionMilitaryForce()
+	sim.UpdateWars()
+
+	// 5. И только в конце обновляем время
+	sim.GlobalTick++
+}
+
 // Simulate запускает симуляцию на N часов
 func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
-	sim.mu.Lock()
-	defer sim.mu.Unlock()
-
 	startTime := sim.GlobalTick
 	endTime := startTime + ticks
 
-	// Отслеживаем события, проходящие во время симуляции
-	newEvents := []WorldEvent{}
-
 	for tick := startTime; tick < endTime; tick++ {
-		sim.GlobalTick = tick
-
-		// Каждый игровой час есть фиксированное значение вероятности наступления события
-		if rand.Float64() < 0.3 { // 30% chance per tick
-			event := sim.generateTickEvent(tick)
-			if event != nil {
-				sim.EventLog = append(sim.EventLog, *event)
-				newEvents = append(newEvents, *event)
-			}
-		}
-
-		sim.executeFactionActions()
-
-		sim.runKPPSimulation()
-
-		// Синхронизируем списки доменов у фракций
-		sim.syncFactionDomains()
-
-		sim.updateDomainStability()
-		sim.UpdateWars()
+		sim.Tick()
 	}
 
 	// Return delta (only changes)
 	delta := &SimulationDelta{
 		TicksSimulated: ticks,
-		Events:         newEvents,
+		Events:         sim.EventLog,
 		FactionStates:  sim.copyFactionStates(),
 		DomainStates:   sim.copyDomainStates(),
 		GlobalTick:     sim.GlobalTick,
 	}
 
-	log.Printf("SIMULATE_COMPLETE ticks=%d global_tick=%d new_events=%d", ticks, sim.GlobalTick, len(newEvents))
+	sim.EventBus.Publish(GameEvent{
+		Type: "SIMULATION_COMPLETE",
+		Tick: delta.GlobalTick,
+		Data: map[string]any{
+			"ticks_simulated": delta.TicksSimulated,
+			"new_events":      delta.Events,
+			"global_tick":     delta.GlobalTick,
+		},
+	})
 	return delta
 }
 
@@ -178,42 +185,12 @@ func (sim *WorldSimulator) runTimeLoop() {
 	// 1 тик = 5 реальных секунд
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-sim.stop:
 			return
 		case <-ticker.C:
-			sim.mu.Lock()
-
-			// 1. Сначала считаем физику (влияние распространяется)
-			sim.runKPPSimulation()
-
-			// 2. Раз в 6 тиков (30 сек) фракции принимают решения
-			if sim.GlobalTick%6 == 0 {
-				sim.executeFactionActions()
-			}
-
-			// 3. Раз в 9 тиков (45 сек) происходят случайные события
-			if sim.GlobalTick%9 == 0 {
-				event := sim.generateTickEvent(sim.GlobalTick)
-				if event != nil {
-					sim.EventLog = append(sim.EventLog, *event)
-				}
-			}
-
-			// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
-			if sim.GlobalTick%12 == 0 {
-				sim.updateDomainStability()
-			}
-
-			sim.updateFactionMilitaryForce()
-			sim.UpdateWars()
-
-			// 5. И только в конце обновляем время
-			sim.GlobalTick++
-
-			sim.mu.Unlock()
+			sim.Tick()
 		}
 	}
 }
