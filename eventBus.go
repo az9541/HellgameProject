@@ -8,18 +8,24 @@ import (
 type IBuilderGameEvent interface {
 	SetType(string) IBuilderGameEvent
 	SetTick(int64) IBuilderGameEvent
-	SetData(map[string]any) IBuilderGameEvent
+	SetData(EventData) IBuilderGameEvent
+	SetKind(EventKind) IBuilderGameEvent
 	Build() GameEvent
 }
 
 type BuilderWarEvent struct {
-	Type string
-	Tick int64
-	Data map[string]any
+	Type      string
+	Tick      int64
+	EventData EventData
+	EventKind EventKind
 }
 
+func (b *BuilderWarEvent) SetKind(k EventKind) IBuilderGameEvent {
+	b.EventKind = k
+	return b
+}
 func NewBuilderWarEvent() *BuilderWarEvent {
-	return &BuilderWarEvent{}
+	return &BuilderWarEvent{EventKind: EventKindWar}
 }
 
 func (b *BuilderWarEvent) SetType(t string) IBuilderGameEvent {
@@ -32,23 +38,25 @@ func (b *BuilderWarEvent) SetTick(t int64) IBuilderGameEvent {
 	return b
 }
 
-func (b *BuilderWarEvent) SetData(d map[string]any) IBuilderGameEvent {
-	b.Data = d
+func (b *BuilderWarEvent) SetData(d EventData) IBuilderGameEvent {
+	b.EventData = d
 	return b
 }
 
 func (b *BuilderWarEvent) Build() GameEvent {
 	return GameEvent{
-		Type: b.Type,
-		Tick: b.Tick,
-		Data: b.Data,
+		Type:      b.Type,
+		Tick:      b.Tick,
+		EventData: b.EventData,
+		EventKind: b.EventKind,
 	}
 }
 
 type GameEvent struct {
-	Type string
-	Tick int64
-	Data map[string]any
+	Type      string
+	Tick      int64
+	EventData EventData
+	EventKind EventKind
 }
 
 type EventPublisher struct {
@@ -103,7 +111,7 @@ func StartEventLogger(bus *EventPublisher, buffer int) {
 	ch := bus.Subscribe(buffer)
 	go func() {
 		for event := range ch {
-			log.Printf("EVENT=%s tick=%d data=%v", event.Type, event.Tick, event.Data)
+			log.Printf("EVENT=%s tick=%d data=%+v", event.Type, event.Tick, event.EventData)
 		}
 	}()
 }
