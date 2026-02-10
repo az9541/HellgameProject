@@ -85,15 +85,21 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		}
 		sim.Wars[war.ID] = war
 		gameEventBuillder := NewBuilderWarEvent()
-		gameEventBuillder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-			"attacker":                attacker.Name,
-			"defender":                defender.Name,
-			"domain":                  domain.Name,
-			"reason":                  "defender_zero_force",
-			"actual_defender_force":   baseDefenderStrength,
-			"estimate_defender_force": estimateDefenderStrength,
+
+		gameEventBuillder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(WarStartData{
+			Attacker:              attacker.Name,
+			Defender:              defender.Name,
+			Domain:                domain.Name,
+			DomainID:              domain.ID,
+			Reason:                "defender_zero_force",
+			ActualDefenderForce:   baseDefenderStrength,
+			EstimateDefenderForce: estimateDefenderStrength,
+			AttackerCommitted:     attackerCommitted,
+			DefenderCommitted:     defenderCommitted,
+			Ratio:                 strengthRatio,
+			MinStrengthRatio:      MinAttackStrengthRatio,
 		})
-		sim.EventBus.Publish(gameEventBuillder.Build())
+		sim.EmitEvent(gameEventBuillder.Build())
 		sim.FinishWar(war, attacker.ID, defender.ID, domain)
 		return
 	}
@@ -102,17 +108,20 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	if strengthRatio < MinAttackStrengthRatio {
 		// Атакующий слишком слаб - отказывается от атаки
 		gameEventBuilder := NewBuilderWarEvent()
-		gameEventBuilder.SetType("WAR_ABORTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-			"attacker":                attacker.Name,
-			"defender":                defender.Name,
-			"domain":                  domain.Name,
-			"reason":                  "insufficient_strength",
-			"ratio":                   strengthRatio,
-			"min":                     MinAttackStrengthRatio,
-			"actual_defender_force":   baseDefenderStrength,
-			"estimate_defender_force": estimateDefenderStrength,
+		gameEventBuilder.SetType("WAR_ABORTED").SetTick(sim.GlobalTick).SetData(WarEventData{
+			Attacker:              attacker.Name,
+			Defender:              defender.Name,
+			Domain:                domain.Name,
+			DomainID:              domain.ID,
+			Reason:                "insufficient_strength",
+			ActualDefenderForce:   baseDefenderStrength,
+			EstimateDefenderForce: estimateDefenderStrength,
+			AttackerCommitted:     attackerCommitted,
+			DefenderCommitted:     defenderCommitted,
+			Ratio:                 strengthRatio,
+			MinStrengthRatio:      MinAttackStrengthRatio,
 		})
-		sim.EventBus.Publish(gameEventBuilder.Build())
+		sim.EmitEvent(gameEventBuilder.Build())
 		return
 	}
 
@@ -153,19 +162,21 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	sim.Wars[war.ID] = war
 
 	gameEventBuilder := NewBuilderWarEvent()
-	gameEventBuilder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(map[string]any{
-		"attacker":                attacker.Name,
-		"defender":                defender.Name,
-		"domain":                  domain.Name,
-		"attacker_committed":      attackerCommitted,
-		"defender_committed":      defenderCommitted,
-		"attacker_remaining":      attacker.MilitaryForce,
-		"defender_remaining":      defender.MilitaryForce,
-		"ratio":                   strengthRatio,
-		"actual_defender_force":   baseDefenderStrength,
-		"estimate_defender_force": estimateDefenderStrength,
+
+	gameEventBuilder.SetType("WAR_STARTED").SetTick(sim.GlobalTick).SetData(WarStartData{
+		Attacker:              attacker.Name,
+		Defender:              defender.Name,
+		Domain:                domain.Name,
+		DomainID:              domain.ID,
+		Reason:                "acceptable_strength_ratio",
+		ActualDefenderForce:   baseDefenderStrength,
+		EstimateDefenderForce: estimateDefenderStrength,
+		AttackerCommitted:     attackerCommitted,
+		DefenderCommitted:     defenderCommitted,
+		Ratio:                 strengthRatio,
+		MinStrengthRatio:      MinAttackStrengthRatio,
 	})
-	sim.EventBus.Publish(gameEventBuilder.Build())
+	sim.EmitEvent(gameEventBuilder.Build())
 }
 
 // Подсчёт активных войн фракции
@@ -193,13 +204,13 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{}
 			war.LosersID = map[string]string{}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker": war.AttackerID,
-				"defender": war.DefenderID,
-				"domain":   war.DomainID,
-				"reason":   "invalid_war_state",
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker: war.AttackerID,
+				Defender: war.DefenderID,
+				Domain:   war.DomainID,
+				Reason:   "invalid_war_state",
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			continue
 		}
 
@@ -220,13 +231,13 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{attacker.ID: "defender_zero_force"}
 			war.LosersID = map[string]string{defender.ID: "zero_force"}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker": attacker.Name,
-				"defender": defender.Name,
-				"domain":   domain.Name,
-				"reason":   "defender_annihilated",
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker: attacker.Name,
+				Defender: defender.Name,
+				Domain:   domain.Name,
+				Reason:   "defender_annihilated",
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			sim.FinishWar(war, attacker.ID, defender.ID, domain)
 			continue
 		}
@@ -235,13 +246,13 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{defender.ID: "attacker_zero_force"}
 			war.LosersID = map[string]string{attacker.ID: "zero_force"}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker": attacker.Name,
-				"defender": defender.Name,
-				"domain":   domain.Name,
-				"reason":   "attacker_annihilated",
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker: attacker.Name,
+				Defender: defender.Name,
+				Domain:   domain.Name,
+				Reason:   "attacker_annihilated",
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			sim.FinishWar(war, defender.ID, attacker.ID, domain)
 			continue
 		}
@@ -390,19 +401,19 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{attacker.ID: "defender_surrendered"}
 			war.LosersID = map[string]string{defender.ID: "surrendered"}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker":              attacker.Name,
-				"defender":              defender.Name,
-				"domain":                domain.Name,
-				"reason":                "defender_surrendered",
-				"attacker_losses_pct":   attackerLossPercent * 100,
-				"defender_losses_pct":   defenderLossPercent * 100,
-				"attacker_morale":       war.AttackerMorale,
-				"defender_morale":       war.DefenderMorale,
-				"attacker_force_remain": war.AttackerCurrentForce,
-				"defender_force_remain": war.DefenderCurrentForce,
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker:            attacker.Name,
+				Defender:            defender.Name,
+				Domain:              domain.Name,
+				Reason:              "defender_surrendered",
+				AttackerLossesPct:   attackerLossPercent * 100,
+				DefenderLossesPct:   defenderLossPercent * 100,
+				AttackerMorale:      war.AttackerMorale,
+				DefenderMorale:      war.DefenderMorale,
+				AttackerForceRemain: war.AttackerCurrentForce,
+				DefenderForceRemain: war.DefenderCurrentForce,
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			sim.FinishWar(war, attacker.ID, defender.ID, domain)
 			continue
 		}
@@ -412,19 +423,19 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{defender.ID: "attacker_retreated"}
 			war.LosersID = map[string]string{attacker.ID: "retreated"}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker":              attacker.Name,
-				"defender":              defender.Name,
-				"domain":                domain.Name,
-				"reason":                "attacker_retreated",
-				"attacker_losses_pct":   attackerLossPercent * 100,
-				"defender_losses_pct":   defenderLossPercent * 100,
-				"attacker_morale":       war.AttackerMorale,
-				"defender_morale":       war.DefenderMorale,
-				"attacker_force_remain": war.AttackerCurrentForce,
-				"defender_force_remain": war.DefenderCurrentForce,
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker:            attacker.Name,
+				Defender:            defender.Name,
+				Domain:              domain.Name,
+				Reason:              "attacker_retreated",
+				AttackerLossesPct:   attackerLossPercent * 100,
+				DefenderLossesPct:   defenderLossPercent * 100,
+				AttackerMorale:      war.AttackerMorale,
+				DefenderMorale:      war.DefenderMorale,
+				AttackerForceRemain: war.AttackerCurrentForce,
+				DefenderForceRemain: war.DefenderCurrentForce,
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			sim.FinishWar(war, defender.ID, attacker.ID, domain)
 			continue
 		}
@@ -435,39 +446,39 @@ func (sim *WorldSimulator) UpdateWars() {
 			war.WinnersID = map[string]string{attacker.ID: "defender_retreated"}
 			war.LosersID = map[string]string{defender.ID: "strategic_retreat"}
 			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(map[string]any{
-				"attacker":              attacker.Name,
-				"defender":              defender.Name,
-				"domain":                domain.Name,
-				"reason":                "defender_strategic_retreat",
-				"attacker_losses_pct":   attackerLossPercent * 100,
-				"defender_losses_pct":   defenderLossPercent * 100,
-				"attacker_morale":       war.AttackerMorale,
-				"defender_morale":       war.DefenderMorale,
-				"attacker_force_remain": war.AttackerCurrentForce,
-				"defender_force_remain": war.DefenderCurrentForce,
+			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.GlobalTick).SetData(WarEventData{
+				Attacker:            attacker.Name,
+				Defender:            defender.Name,
+				Domain:              domain.Name,
+				Reason:              "defender_strategic_retreat",
+				AttackerLossesPct:   attackerLossPercent * 100,
+				DefenderLossesPct:   defenderLossPercent * 100,
+				AttackerMorale:      war.AttackerMorale,
+				DefenderMorale:      war.DefenderMorale,
+				AttackerForceRemain: war.AttackerCurrentForce,
+				DefenderForceRemain: war.DefenderCurrentForce,
 			})
-			sim.EventBus.Publish(gameEventBuilder.Build())
+			sim.EmitEvent(gameEventBuilder.Build())
 			sim.FinishWar(war, attacker.ID, defender.ID, domain)
 			continue
 		}
 
 		// Лог текущего состояния войны
 		warLogBuilder := NewBuilderWarEvent()
-		warLogBuilder.SetType("WAR_UPDATE").SetTick(sim.GlobalTick).SetData(map[string]any{
-			"attacker":            attacker.Name,
-			"defender":            defender.Name,
-			"domain":              domain.Name,
-			"momentum":            war.Momentum,
-			"attacker_morale":     war.AttackerMorale,
-			"defender_morale":     war.DefenderMorale,
-			"attacker_force":      war.AttackerCurrentForce,
-			"defender_force":      war.DefenderCurrentForce,
-			"attacker_losses_pct": attackerLossPercent * 100,
-			"defender_losses_pct": defenderLossPercent * 100,
-			"force_ratio":         currentForceRatio,
+		warLogBuilder.SetType("WAR_UPDATE").SetTick(sim.GlobalTick).SetData(WarUpdateData{
+			Attacker:          attacker.Name,
+			Defender:          defender.Name,
+			Domain:            domain.Name,
+			Momentum:          war.Momentum,
+			AttackerMorale:    war.AttackerMorale,
+			DefenderMorale:    war.DefenderMorale,
+			AttackerForce:     war.AttackerCurrentForce,
+			DefenderForce:     war.DefenderCurrentForce,
+			AttackerLossesPct: attackerLossPercent * 100,
+			DefenderLossesPct: defenderLossPercent * 100,
+			ForceRatio:        currentForceRatio,
 		})
-		sim.EventBus.Publish(warLogBuilder.Build())
+		sim.EmitEvent(warLogBuilder.Build())
 	}
 }
 
