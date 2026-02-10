@@ -13,7 +13,7 @@ type WorldSimulator struct {
 	Domains    map[string]*DomainState
 	GlobalTick int64
 	// Event tracking
-	EventLog []WorldEvent
+	EventLog []GameEvent
 	eventMu  sync.RWMutex
 	mu       sync.RWMutex
 	// Channels for goroutines
@@ -74,22 +74,10 @@ type WarState struct {
 	LosersID  map[string]string
 }
 
-// WorldEvent представляет событие в мире
-type WorldEvent struct {
-	ID          string
-	Tick        int64
-	Type        string // "faction_war", "trade_route", "rebellion", "discovery"
-	Location    string // domain ID
-	Title       string
-	Description string
-	Consequence string
-	Factions    []string // involved factions
-}
-
 // SimulationDelta - результат симуляции
 type SimulationDelta struct {
 	TicksSimulated int64
-	Events         []WorldEvent
+	Events         []GameEvent
 	FactionStates  map[string]*FactionState
 	DomainStates   map[string]*DomainState
 	GlobalTick     int64
@@ -102,7 +90,7 @@ func NewWorldSimulator() *WorldSimulator {
 		Factions:   createInitialFactions(),
 		Domains:    domains,
 		GlobalTick: 0,
-		EventLog:   []WorldEvent{},
+		EventLog:   []GameEvent{},
 		stop:       make(chan bool),
 		EventBus:   NewEventPublisher(),
 	}
@@ -116,7 +104,7 @@ func (sim *WorldSimulator) Start() {
 	log.Println("🚀 Starting world simulation goroutines...")
 
 	go sim.runTimeLoop()
-	//go sim.Simulate(500)
+	//go sim.Simulate(2000)
 
 	log.Printf("✅ Simulation goroutines started")
 }

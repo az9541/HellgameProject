@@ -46,12 +46,13 @@ func (sim *WorldSimulator) generateMysteryEvent(tick int64) *GameEvent {
 		Type:      "mystery",
 		EventKind: EventKindWorld,
 		Tick:      tick,
-		EventData: WorldEventData{
-			Meta: WorldEventMeta{
-				Location:    domain.ID,
-				Title:       titles[rand.Intn(len(titles))],
-				Description: "Something mysterious is happening in " + domain.Name + ". The inhabitants are uneasy.",
-				Consequence: domain.Name + " stability -3",
+		EventData: GenericEventData{
+			EventKind: EventKindWorld,
+			EventData: map[string]any{
+				"location":    domain.ID,
+				"title":       titles[rand.Intn(len(titles))],
+				"description": "Something mysterious is happening in " + domain.Name + ". The inhabitants are uneasy.",
+				"consequence": domain.Name + " stability -3",
 			},
 		},
 	}
@@ -75,12 +76,13 @@ func (sim *WorldSimulator) generateResourceEvent(tick int64) *GameEvent {
 
 	return &GameEvent{
 		Type:      "resource_discovery",
-		EventKind: EventKindGeneric,
+		EventKind: EventKindWorld,
 		Tick:      tick,
-		EventData: WorldEventData{
-			Meta: WorldEventMeta{
-				Location: domain.ID,
-				Title:    "Valuable resource discovered",
+		EventData: GenericEventData{
+			EventKind: EventKindWorld,
+			EventData: map[string]any{
+				"location": domain.ID,
+				"title":    "Valuable resource discovered",
 			},
 		},
 	}
@@ -104,13 +106,14 @@ func (sim *WorldSimulator) generateCulturalEvent(tick int64) *GameEvent {
 	return &GameEvent{
 		Type:      "cultural_event",
 		Tick:      tick,
-		EventKind: EventKindGeneric,
-		EventData: WorldEventData{
-			Meta: WorldEventMeta{
-				Location:    domain.ID,
-				Title:       "Cultural festival",
-				Description: "A grand cultural festival is taking place in " + domain.Name + ". It attracts visitors from all over the world.",
-				Consequence: domain.Name + " stability +5",
+		EventKind: EventKindWorld,
+		EventData: GenericEventData{
+			EventKind: EventKindWorld,
+			EventData: map[string]any{
+				"location":    domain.ID,
+				"title":       "Cultural festival",
+				"description": "A grand cultural festival is taking place in " + domain.Name + ". It attracts visitors from all over the world.",
+				"consequence": domain.Name + " stability +5",
 			},
 		},
 	}
@@ -134,13 +137,14 @@ func (sim *WorldSimulator) generateDangerEvent(tick int64) *GameEvent {
 	return &GameEvent{
 		Type:      "danger_event",
 		Tick:      tick,
-		EventKind: EventKindGeneric,
-		EventData: WorldEventData{
-			Meta: WorldEventMeta{
-				Location:    domain.ID,
-				Title:       "Dangerous situation unfolds",
-				Description: "A dangerous situation is unfolding in " + domain.Name + ". The inhabitants are on high alert.",
-				Consequence: domain.Name + " stability -5",
+		EventKind: EventKindWorld,
+		EventData: GenericEventData{
+			EventKind: EventKindWorld,
+			EventData: map[string]any{
+				"location":    domain.ID,
+				"title":       "Dangerous situation unfolds",
+				"description": "A dangerous situation is unfolding in " + domain.Name + ". The inhabitants are on high alert.",
+				"consequence": domain.Name + " stability -5",
 			},
 		},
 	}
