@@ -56,24 +56,30 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	probability := baseProbability * (1.0 + influence)
 	if probability >= 0.6 {
 		sim.transferDomainControl(domain, attacker)
-		sim.EventBus.Publish(GameEvent{
-			Type: "DOMAIN_TAKEOVER",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"attacker": attacker.Name,
-				"domain":   domain.Name,
-			},
-		})
+		sim.EmitEvent(GameEvent{
+			Type:      "DOMAIN_TAKEOVER",
+			Tick:      sim.GlobalTick,
+			EventKind: EventKindGeneric,
+			EventData: GenericEventData{
+				EventKind: EventKindGeneric,
+				EventData: map[string]any{
+					"attacker": attacker.Name,
+					"domain":   domain.Name,
+				},
+			}})
 	} else {
 		sim.EventBus.Publish(GameEvent{
-			Type: "TAKEOVER_FAILED",
-			Tick: sim.GlobalTick,
-			Data: map[string]any{
-				"attacker":    attacker.Name,
-				"domain":      domain.Name,
-				"probability": probability,
-			},
-		})
+			Type:      "TAKEOVER_FAILED",
+			Tick:      sim.GlobalTick,
+			EventKind: EventKindGeneric,
+			EventData: GenericEventData{
+				EventKind: EventKindGeneric,
+				EventData: map[string]any{
+					"attacker":    attacker.Name,
+					"domain":      domain.Name,
+					"probability": probability,
+				},
+			}})
 	}
 }
 
@@ -108,12 +114,16 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	domain2.Stability = minFloat(domain2.Stability+10, 100)
 	faction.Resources += 10
 	sim.EventBus.Publish(GameEvent{
-		Type: "TRADE_ROUTE",
-		Tick: sim.GlobalTick,
-		Data: map[string]any{
-			"from": domain1.Name,
-			"to":   domain2.Name,
-			"by":   faction.Name,
+		Type:      "TRADE_ROUTE",
+		Tick:      sim.GlobalTick,
+		EventKind: EventKindGeneric,
+		EventData: GenericEventData{
+			EventKind: EventKindGeneric,
+			EventData: map[string]any{
+				"from": domain1.Name,
+				"to":   domain2.Name,
+				"by":   faction.Name,
+			},
 		},
 	})
 }
