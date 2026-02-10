@@ -14,6 +14,7 @@ type WorldSimulator struct {
 	GlobalTick int64
 	// Event tracking
 	EventLog []WorldEvent
+	eventMu  sync.RWMutex
 	mu       sync.RWMutex
 	// Channels for goroutines
 	stop     chan bool
@@ -115,6 +116,7 @@ func (sim *WorldSimulator) Start() {
 	log.Println("🚀 Starting world simulation goroutines...")
 
 	go sim.runTimeLoop()
+	//go sim.Simulate(500)
 
 	log.Printf("✅ Simulation goroutines started")
 }
@@ -136,7 +138,7 @@ func (sim *WorldSimulator) Tick() {
 	if sim.GlobalTick%9 == 0 {
 		event := sim.generateTickEvent(sim.GlobalTick)
 		if event != nil {
-			sim.EventLog = append(sim.EventLog, *event)
+			sim.EmitEvent(*event)
 		}
 	}
 	// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
@@ -168,13 +170,18 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 		GlobalTick:     sim.GlobalTick,
 	}
 
-	sim.EventBus.Publish(GameEvent{
-		Type: "SIMULATION_COMPLETE",
-		Tick: delta.GlobalTick,
-		Data: map[string]any{
-			"ticks_simulated": delta.TicksSimulated,
-			"new_events":      delta.Events,
-			"global_tick":     delta.GlobalTick,
+	sim.EmitEvent(GameEvent{
+		Type:      "SIMULATION_COMPLETED",
+		Tick:      sim.GlobalTick,
+		EventKind: EventKindGeneric,
+		EventData: GenericEventData{
+			EventKind: EventKindGeneric,
+			EventData: map[string]any{
+				"ticks_simulated": ticks,
+				"events_count":    len(delta.Events),
+				"factions":        delta.FactionStates,
+				"domains":         delta.DomainStates,
+			},
 		},
 	})
 	return delta
