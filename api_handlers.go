@@ -115,7 +115,6 @@ func handleGetWorldState(w http.ResponseWriter, r *http.Request, sim *WorldSimul
 
 // handleGetEvents - получить события из лога
 func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
-	location := r.URL.Query().Get("location")
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
 
@@ -128,18 +127,8 @@ func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator
 	sim.mu.RLock()
 	defer sim.mu.RUnlock()
 
-	var events []WorldEvent
-	if location != "" {
-		// Filter by location
-		for _, event := range sim.EventLog {
-			if event.Location == location {
-				events = append(events, event)
-			}
-		}
-	} else {
-		// Return all
-		events = sim.EventLog
-	}
+	var events []GameEvent
+	events = sim.EventLog
 
 	// Return last N events
 	start := len(events) - limit
