@@ -24,9 +24,6 @@ func (b *BuilderWarEvent) SetKind(k EventKind) IBuilderGameEvent {
 	b.EventKind = k
 	return b
 }
-func NewBuilderWarEvent() *BuilderWarEvent {
-	return &BuilderWarEvent{EventKind: EventKindWar}
-}
 
 func (b *BuilderWarEvent) SetType(t string) IBuilderGameEvent {
 	b.Type = t
@@ -44,6 +41,50 @@ func (b *BuilderWarEvent) SetData(d EventData) IBuilderGameEvent {
 }
 
 func (b *BuilderWarEvent) Build() GameEvent {
+	return GameEvent{
+		Type:      b.Type,
+		Tick:      b.Tick,
+		EventData: b.EventData,
+		EventKind: b.EventKind,
+	}
+}
+
+func NewBuilderWarEvent() *BuilderWarEvent {
+	return &BuilderWarEvent{EventKind: EventKindWar}
+}
+
+type BuilderGenericEvent struct {
+	Type      string
+	Tick      int64
+	EventData EventData
+	EventKind EventKind
+}
+
+func NewBuilderGenericEvent() *BuilderGenericEvent {
+	return &BuilderGenericEvent{EventKind: EventKindGeneric}
+}
+
+func (b *BuilderGenericEvent) SetKind(k EventKind) IBuilderGameEvent {
+	b.EventKind = k
+	return b
+}
+
+func (b *BuilderGenericEvent) SetType(t string) IBuilderGameEvent {
+	b.Type = t
+	return b
+}
+
+func (b *BuilderGenericEvent) SetTick(t int64) IBuilderGameEvent {
+	b.Tick = t
+	return b
+}
+
+func (b *BuilderGenericEvent) SetData(d EventData) IBuilderGameEvent {
+	b.EventData = d
+	return b
+}
+
+func (b *BuilderGenericEvent) Build() GameEvent {
 	return GameEvent{
 		Type:      b.Type,
 		Tick:      b.Tick,
