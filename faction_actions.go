@@ -1,40 +1,61 @@
 package main
 
 import (
-	"log"
 	"math/rand"
 )
 
 // executeFactionActions выполняет действия всех фракций
 func (sim *WorldSimulator) executeFactionActions() {
-	for _, faction := range sim.Factions {
+	for _, faction := range sim.State.Factions {
 		// Сначала всегда проверяем кандидатуры на захват по текущим плотностям влияния
-		var topDomain *DomainState
-		var topInfluence float64
-
-		for _, domain := range sim.Domains {
-			// Если домен контролируется текущей фракцией - пропускаем
-			if domain.ControlledBy == faction.ID {
-				continue
-			}
-			// Проверяем влияние фракции на домен
-			if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
-				if infl > topInfluence {
-					topInfluence = infl
-					topDomain = domain
-				}
-			}
-		}
-
-		// Если есть кандидат — пробуем захват или приводим к войне
-		if topDomain != nil {
+		topDomain, topInfluence := faction.getTopFactionDomainInfluence(sim)
+		reachable, _ := faction.canReachDomain(topDomain, sim)
+		if reachable {
 			if topDomain.ControlledBy != "none" {
-				sim.StartWarTrigger(faction, sim.Factions[topDomain.ControlledBy], topDomain)
+				factionActiveWars := faction.getActiveWars(sim)
+				attractiveness := faction.calcDomainAttractiveness(topDomain, topInfluence, len(factionActiveWars))
+				if attractiveness > TEMPDomainAttractivnessThreshold {
+					gameEventBuillder := NewBuilderGenericEvent()
+					gameEventBuillder.SetType("WAR_PROBABILITY").SetTick(sim.State.GlobalTick).SetData(GenericEventData{
+						EventKind: EventKindGeneric,
+						EventData: map[string]any{
+							"pretender":         faction.Name,
+							"domain_controller": sim.State.Factions[topDomain.ControlledBy].Name,
+							"domain":            topDomain.Name,
+							"attractiveness":    attractiveness,
+							"description":       "Attractiveness is high enough to consider war. Evaluating further conditions...",
+						},
+					})
+					sim.EventBus.Publish(gameEventBuillder.Build())
+					sim.StartWarTrigger(faction, sim.State.Factions[topDomain.ControlledBy], topDomain)
+				} else {
+					gameEventBuillder := NewBuilderGenericEvent()
+					gameEventBuillder.SetType("WAR_AVOIDED").SetTick(sim.State.GlobalTick).SetData(GenericEventData{
+						EventKind: EventKindGeneric,
+						EventData: map[string]any{
+							"pretender":         faction.Name,
+							"domain_controller": sim.State.Factions[topDomain.ControlledBy].Name,
+							"domain":            topDomain.Name,
+							"attractiveness":    attractiveness,
+							"description":       "Attractiveness is too low to justify war. Faction decides to avoid conflict for now.",
+						},
+					})
+					sim.EventBus.Publish(gameEventBuillder.Build())
+				}
 			} else {
 				sim.attemptDomainTakeover(faction, topDomain, topInfluence)
 			}
 		} else {
-			log.Printf("INFO: no takeover candidate for faction=%q (threshold=%.3f), faction influence on domen: %.2f", faction.ID, InfluenceToTakeOver, topInfluence)
+			gameEventBuillder := NewBuilderGenericEvent()
+			gameEventBuillder.SetType("NO_TAKEOVER_CANDIDATE").SetTick(sim.State.GlobalTick).SetData(GenericEventData{
+				EventKind: EventKindGeneric,
+				EventData: map[string]any{
+					"faction":   faction.ID,
+					"threshold": InfluenceToTakeOver,
+					"influence": topInfluence,
+				},
+			})
+			sim.EventBus.Publish(gameEventBuillder.Build())
 		}
 
 		// Отдельно — случайные второстепенные действия (торговля, ресурсы)
@@ -58,7 +79,7 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 		sim.transferDomainControl(domain, attacker)
 		sim.EmitEvent(GameEvent{
 			Type:      "DOMAIN_TAKEOVER",
-			Tick:      sim.GlobalTick,
+			Tick:      sim.State.GlobalTick,
 			EventKind: EventKindGeneric,
 			EventData: GenericEventData{
 				EventKind: EventKindGeneric,
@@ -70,7 +91,7 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	} else {
 		sim.EventBus.Publish(GameEvent{
 			Type:      "TAKEOVER_FAILED",
-			Tick:      sim.GlobalTick,
+			Tick:      sim.State.GlobalTick,
 			EventKind: EventKindGeneric,
 			EventData: GenericEventData{
 				EventKind: EventKindGeneric,
@@ -93,7 +114,7 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	// Выбираем два рандомных домена
 	domains := make([]*DomainState, 0)
-	for _, d := range sim.Domains {
+	for _, d := range sim.State.Domains {
 		domains = append(domains, d)
 	}
 
@@ -115,7 +136,7 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	faction.Resources += 10
 	sim.EventBus.Publish(GameEvent{
 		Type:      "TRADE_ROUTE",
-		Tick:      sim.GlobalTick,
+		Tick:      sim.State.GlobalTick,
 		EventKind: EventKindGeneric,
 		EventData: GenericEventData{
 			EventKind: EventKindGeneric,
@@ -157,20 +178,81 @@ func (faction *FactionState) hasDomain(id string) bool {
 	return false
 }
 
+func (faction *FactionState) getTopFactionDomainInfluence(sim *WorldSimulator) (*DomainState, float64) {
+	var topDomain *DomainState
+	var topInfluence float64
+
+	for _, domain := range sim.State.Domains {
+		// Если домен контролируется текущей фракцией - пропускаем
+		if domain.ControlledBy == faction.ID {
+			continue
+		}
+		// Проверяем влияние фракции на домен
+		if infl, ok := domain.Influence[faction.ID]; ok && infl > InfluenceToTakeOver {
+			if infl > topInfluence {
+				topInfluence = infl
+				topDomain = domain
+			}
+		}
+	}
+	return topDomain, topInfluence
+}
+
+func (faction *FactionState) getActiveWars(sim *WorldSimulator) []*WarState {
+	activeWars := make([]*WarState, 0)
+	for _, war := range sim.State.Wars {
+		if war == nil || war.IsOver {
+			continue
+		}
+		if war.AttackerID == faction.ID || war.DefenderID == faction.ID {
+			activeWars = append(activeWars, war)
+		}
+	}
+	return activeWars
+}
+
 func (sim *WorldSimulator) updateFactionMilitaryForce() {
 	factionsInWar := make(map[string]struct{})
-	for _, war := range sim.Wars {
+	for _, war := range sim.State.Wars {
 		if war == nil || war.IsOver {
 			continue
 		}
 		factionsInWar[war.AttackerID] = struct{}{}
 		factionsInWar[war.DefenderID] = struct{}{}
 	}
-	for _, faction := range sim.Factions {
+	for _, faction := range sim.State.Factions {
 		if _, ok := factionsInWar[faction.ID]; ok {
 			faction.MilitaryForce = minFloat(faction.MilitaryForce+0.1, MaxMilitaryForce)
 		} else {
 			faction.MilitaryForce = minFloat(faction.MilitaryForce+1, MaxMilitaryForce)
 		}
 	}
+}
+
+func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimulator) (bool, []*DomainState) {
+	if domain == nil {
+		return false, nil
+	}
+	footholds := make([]*DomainState, 0)
+	var isReachable bool
+	if domain.ControlledBy == faction.ID {
+		isReachable = true
+		footholds = append(footholds, domain)
+	}
+	for _, neighborID := range domain.AdjacentDomains {
+		if neighbor, ok := sim.State.Domains[neighborID]; ok && neighbor.ControlledBy == faction.ID {
+			isReachable = true
+			footholds = append(footholds, neighbor)
+		}
+	}
+	return isReachable, footholds
+}
+
+func (faction *FactionState) calcDomainAttractiveness(domain *DomainState, influence float64, activeWars int) float64 {
+	popFactor := clamp(float64(domain.Population)/10000.0, 0.1, 1)
+	stabFactor := clamp(domain.Stability/100.0, 0.1, 1)
+	inflFactor := clamp(influence, 0, 1) * 2.0
+	dangerFactor := 3.0 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
+	warPenalty := 1.0 - clamp(float64(activeWars)*0.2, 0, 0.8)
+	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty
 }
