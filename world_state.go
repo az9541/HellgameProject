@@ -3,7 +3,7 @@ package main
 // copyFactionStates создаёт глубокую копию состояний всех фракций
 func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
 	copy := make(map[string]*FactionState)
-	for id, faction := range sim.Factions {
+	for id, faction := range sim.State.Factions {
 		copy[id] = &FactionState{
 			ID:            faction.ID,
 			Name:          faction.Name,
@@ -21,7 +21,7 @@ func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
 // copyDomainStates создаёт глубокую копию состояний всех доменов
 func (sim *WorldSimulator) copyDomainStates() map[string]*DomainState {
 	copy := make(map[string]*DomainState)
-	for id, domain := range sim.Domains {
+	for id, domain := range sim.State.Domains {
 		copy[id] = &DomainState{
 			ID:           domain.ID,
 			Name:         domain.Name,

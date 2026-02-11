@@ -9,16 +9,12 @@ import (
 // WorldSimulator управляет симуляцией всего мира
 type WorldSimulator struct {
 	// State
-	Factions   map[string]*FactionState
-	Domains    map[string]*DomainState
-	GlobalTick int64
+	State *WorldState
 	// Event tracking
-	EventLog []GameEvent
-	eventMu  sync.RWMutex
-	mu       sync.RWMutex
+	eventMu sync.RWMutex
+	mu      sync.RWMutex
 	// Channels for goroutines
 	stop     chan bool
-	Wars     map[string]*WarState
 	EventBus *EventPublisher
 }
 
@@ -83,19 +79,33 @@ type SimulationDelta struct {
 	GlobalTick     int64
 }
 
+// Полное состояние мира. По сути является снапшотом текущего тика.
+// Должно использоваться в передаче в Godot по API, а также для сохранения/загрузки игры.
+type WorldState struct {
+	Factions   map[string]*FactionState
+	Domains    map[string]*DomainState
+	Wars       map[string]*WarState
+	GlobalTick int64
+	EventLog   []GameEvent
+}
+
 // NewWorldSimulator создаёт новый симулятор
 func NewWorldSimulator() *WorldSimulator {
 	domains, _ := createInitialDomains()
-	sim := &WorldSimulator{
+	state := &WorldState{
 		Factions:   createInitialFactions(),
 		Domains:    domains,
+		Wars:       make(map[string]*WarState),
 		GlobalTick: 0,
-		EventLog:   []GameEvent{},
-		stop:       make(chan bool),
-		EventBus:   NewEventPublisher(),
+		EventLog:   make([]GameEvent, 0),
+	}
+
+	sim := &WorldSimulator{
+		State:    state,
+		stop:     make(chan bool),
+		EventBus: NewEventPublisher(),
 	}
 	sim.initializeFactionInfluence()
-	sim.Wars = make(map[string]*WarState)
 	return sim
 }
 
@@ -119,30 +129,30 @@ func (sim *WorldSimulator) Tick() {
 	defer sim.mu.Unlock()
 	sim.mu.Lock()
 	sim.runKPPSimulation()
-	if sim.GlobalTick%6 == 0 {
+	if sim.State.GlobalTick%6 == 0 {
 		sim.executeFactionActions()
 	}
 	// 3. Раз в 9 тиков (45 сек) происходят случайные события
-	if sim.GlobalTick%9 == 0 {
-		event := sim.generateTickEvent(sim.GlobalTick)
+	if sim.State.GlobalTick%9 == 0 {
+		event := sim.generateTickEvent(sim.State.GlobalTick)
 		if event != nil {
 			sim.EmitEvent(*event)
 		}
 	}
 	// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
-	if sim.GlobalTick%12 == 0 {
+	if sim.State.GlobalTick%12 == 0 {
 		sim.updateDomainStability()
 	}
 	sim.updateFactionMilitaryForce()
 	sim.UpdateWars()
 
 	// 5. И только в конце обновляем время
-	sim.GlobalTick++
+	sim.State.GlobalTick++
 }
 
 // Simulate запускает симуляцию на N часов
 func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
-	startTime := sim.GlobalTick
+	startTime := sim.State.GlobalTick
 	endTime := startTime + ticks
 
 	for tick := startTime; tick < endTime; tick++ {
@@ -152,15 +162,15 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 	// Return delta (only changes)
 	delta := &SimulationDelta{
 		TicksSimulated: ticks,
-		Events:         sim.EventLog,
+		Events:         sim.State.EventLog,
 		FactionStates:  sim.copyFactionStates(),
 		DomainStates:   sim.copyDomainStates(),
-		GlobalTick:     sim.GlobalTick,
+		GlobalTick:     sim.State.GlobalTick,
 	}
 
 	sim.EmitEvent(GameEvent{
 		Type:      "SIMULATION_COMPLETED",
-		Tick:      sim.GlobalTick,
+		Tick:      sim.State.GlobalTick,
 		EventKind: EventKindGeneric,
 		EventData: GenericEventData{
 			EventKind: EventKindGeneric,

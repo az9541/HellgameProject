@@ -23,6 +23,6 @@ func (sim *WorldSimulator) EmitEvent(event GameEvent) GameEvent {
 // emitEventLocked делает ТОЛЬКО работу с EventLog и метаданными
 func (sim *WorldSimulator) emitEventLocked(event GameEvent) GameEvent {
 
-	sim.EventLog = append(sim.EventLog, event)
+	sim.State.EventLog = append(sim.State.EventLog, event)
 	return event
 }

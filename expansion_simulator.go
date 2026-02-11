@@ -12,8 +12,8 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 	// Каждая фракция имеет минимальное влияние везде
 	baseInfluence := 0.1 // 10% везде по умолчанию
 
-	for _, faction := range sim.Factions {
-		for _, domain := range sim.Domains {
+	for _, faction := range sim.State.Factions {
+		for _, domain := range sim.State.Domains {
 			if domain.Influence == nil {
 				domain.Influence = make(map[string]float64)
 			}
@@ -31,14 +31,14 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 // runKPPSimulation выполняет один шаг KPP (одно обновление влияния фракций)
 func (sim *WorldSimulator) runKPPSimulation() {
 	// Пересчитываем физику для каждой фракции один раз
-	keys := getSortedDomainKeys(sim.Domains)
-	domainsSlice := getDomainsList(keys, sim.Domains)
-	if len(domainsSlice) == 0 || len(sim.Factions) == 0 {
+	keys := getSortedDomainKeys(sim.State.Domains)
+	domainsSlice := getDomainsList(keys, sim.State.Domains)
+	if len(domainsSlice) == 0 || len(sim.State.Factions) == 0 {
 		return
 	}
 
-	newInfluence := make(map[string][]float64, len(sim.Factions))
-	for _, faction := range sim.Factions {
+	newInfluence := make(map[string][]float64, len(sim.State.Factions))
+	for _, faction := range sim.State.Factions {
 		newInfluence[faction.ID] = SimulateFactionExpansion(faction, domainsSlice, 1)
 	}
 
@@ -72,7 +72,7 @@ func (sim *WorldSimulator) runKPPSimulation() {
 				row += ", "
 			}
 		}
-		log.Printf("EXPANSION_DENSITIES_NORMALIZED faction=%q tick=%d densities=[%s]", factionID, sim.GlobalTick, row)
+		log.Printf("EXPANSION_DENSITIES_NORMALIZED faction=%q tick=%d densities=[%s]", factionID, sim.State.GlobalTick, row)
 	}
 }
 
