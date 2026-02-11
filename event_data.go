@@ -8,32 +8,6 @@ type GenericEventData struct {
 	EventData map[string]any
 }
 
-type WarEventData struct {
-	Attacker              string
-	Defender              string
-	Domain                string
-	DomainID              string
-	Reason                string
-	ActualDefenderForce   float64
-	EstimateDefenderForce float64
-	AttackerCommitted     float64
-	DefenderCommitted     float64
-	AttackerRemaining     float64
-	DefenderRemaining     float64
-	Ratio                 float64
-	MinStrengthRatio      float64
-	AttackerLossesPct     float64
-	DefenderLossesPct     float64
-	AttackerMorale        float64
-	DefenderMorale        float64
-	AttackerForceRemain   float64
-	DefenderForceRemain   float64
-	Momentum              float64
-	AttackerForce         float64
-	DefenderForce         float64
-	ForceRatio            float64
-}
-
 type WarStartData struct {
 	Attacker              string
 	Defender              string
@@ -75,6 +49,20 @@ type WarEndedData struct {
 	DefenderForceRemain float64
 }
 
+type WarAbortedData struct {
+	Attacker              string
+	Defender              string
+	Domain                string
+	DomainID              string
+	Reason                string
+	ActualDefenderForce   float64
+	EstimateDefenderForce float64
+	AttackerCommitted     float64
+	DefenderCommitted     float64
+	Ratio                 float64
+	MinStrengthRatio      float64
+}
+
 // === ИНТЕРФЕЙСЫ ДЛЯ СОБЫТИЙ МИРА ===
 
 // У нас может быть множество типов событий. Поэтому любой тип, который хочет считаться событием,
@@ -97,10 +85,6 @@ func (d GenericEventData) Kind() EventKind {
 
 // Имплементация интерфейсов для WarEventData
 // Внутренние данные для эвентов войны
-func (d WarEventData) Kind() EventKind {
-	return EventKindWar
-}
-
 func (d WarStartData) Kind() EventKind {
 	return EventKindWar
 }
@@ -110,5 +94,9 @@ func (d WarUpdateData) Kind() EventKind {
 }
 
 func (d WarEndedData) Kind() EventKind {
+	return EventKindWar
+}
+
+func (d WarAbortedData) Kind() EventKind {
 	return EventKindWar
 }
