@@ -106,10 +106,10 @@ func handleGetWorldState(w http.ResponseWriter, r *http.Request, sim *WorldSimul
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":         "ok",
-		"time":           sim.GlobalTick,
+		"time":           sim.State.GlobalTick,
 		"factions":       sim.copyFactionStates(),
 		"domains":        sim.copyDomainStates(),
-		"event_log_size": len(sim.EventLog),
+		"event_log_size": len(sim.State.EventLog),
 	})
 }
 
@@ -128,7 +128,7 @@ func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator
 	defer sim.mu.RUnlock()
 
 	var events []GameEvent
-	events = sim.EventLog
+	events = sim.State.EventLog
 
 	// Return last N events
 	start := len(events) - limit
