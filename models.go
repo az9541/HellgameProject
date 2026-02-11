@@ -32,10 +32,11 @@ const (
 	EventTypeDanger            = "danger"
 
 	// Numerical constants
-	InfluenceToTakeOver        = 0.1 // Порог влияния фракции для попытки захвата домена
-	MinInfluence               = 0.01
-	MinAwareness               = 0.2
-	InfluenceToAwarenessFactor = 0.8
+	InfluenceToTakeOver              = 0.1 // Порог влияния фракции для попытки захвата домена
+	MinInfluence                     = 0.01
+	MinAwareness                     = 0.2
+	InfluenceToAwarenessFactor       = 0.8
+	TEMPDomainAttractivnessThreshold = 0.6
 
 	// War constants
 	MinAttackStrengthRatio = 0.65  // Минимальное соотношение силы атакующего к защитнику (65%)
