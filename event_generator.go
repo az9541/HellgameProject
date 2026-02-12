@@ -25,7 +25,7 @@ func (sim *WorldSimulator) generateTickEvent(tick int64) *GameEvent {
 // generateMysteryEvent генерирует мистическое событие
 func (sim *WorldSimulator) generateMysteryEvent(tick int64) *GameEvent {
 	domains := make([]*DomainState, 0)
-	for _, d := range sim.Domains {
+	for _, d := range sim.State.Domains {
 		domains = append(domains, d)
 	}
 
@@ -62,7 +62,7 @@ func (sim *WorldSimulator) generateMysteryEvent(tick int64) *GameEvent {
 // generateResourceEvent генерирует событие открытия ресурсов
 func (sim *WorldSimulator) generateResourceEvent(tick int64) *GameEvent {
 	domains := make([]*DomainState, 0)
-	for _, d := range sim.Domains {
+	for _, d := range sim.State.Domains {
 		if d.ControlledBy == FactionCorporateConsortium {
 			domains = append(domains, d)
 		}
@@ -91,7 +91,7 @@ func (sim *WorldSimulator) generateResourceEvent(tick int64) *GameEvent {
 // generateCulturalEvent генерирует культурное событие
 func (sim *WorldSimulator) generateCulturalEvent(tick int64) *GameEvent {
 	domains := make([]*DomainState, 0)
-	for _, d := range sim.Domains {
+	for _, d := range sim.State.Domains {
 		if d.ControlledBy == FactionRepentantCommunes {
 			domains = append(domains, d)
 		}
@@ -122,7 +122,7 @@ func (sim *WorldSimulator) generateCulturalEvent(tick int64) *GameEvent {
 // generateDangerEvent генерирует событие опасности
 func (sim *WorldSimulator) generateDangerEvent(tick int64) *GameEvent {
 	domains := make([]*DomainState, 0)
-	for _, d := range sim.Domains {
+	for _, d := range sim.State.Domains {
 		if d.DangerLevel > 5 {
 			domains = append(domains, d)
 		}

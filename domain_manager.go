@@ -6,8 +6,8 @@ import (
 
 // updateDomainStability обновляет стабильность всех доменов
 func (sim *WorldSimulator) updateDomainStability() {
-	for _, domain := range sim.Domains {
-		controller := sim.Factions[domain.ControlledBy]
+	for _, domain := range sim.State.Domains {
+		controller := sim.State.Factions[domain.ControlledBy]
 		if controller == nil {
 			domain.Stability = maxFloat(domain.Stability-2, 0) // Контроля нет - уходим в хаос
 			continue
@@ -37,12 +37,12 @@ func (sim *WorldSimulator) updateDomainStability() {
 // syncFactionDomains перестраивает DomainsHeld у всех фракций на основе current ControlledBy
 func (sim *WorldSimulator) syncFactionDomains() {
 	// очистить списки
-	for _, f := range sim.Factions {
+	for _, f := range sim.State.Factions {
 		f.DomainsHeld = f.DomainsHeld[:0]
 	}
 	// заполнить заново
-	for _, d := range sim.Domains {
-		if f := sim.Factions[d.ControlledBy]; f != nil {
+	for _, d := range sim.State.Domains {
+		if f := sim.State.Factions[d.ControlledBy]; f != nil {
 			f.DomainsHeld = append(f.DomainsHeld, d.ID)
 		}
 	}
@@ -50,7 +50,7 @@ func (sim *WorldSimulator) syncFactionDomains() {
 
 // transferDomainControl передаёт контроль над доменом новой фракции
 func (sim *WorldSimulator) transferDomainControl(domain *DomainState, newOwner *FactionState) {
-	oldOwner := sim.Factions[domain.ControlledBy]
+	oldOwner := sim.State.Factions[domain.ControlledBy]
 
 	if newOwner != nil && oldOwner != nil && oldOwner.ID == newOwner.ID {
 		return // ничего не менять

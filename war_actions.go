@@ -17,24 +17,24 @@ func (sim *WorldSimulator) getActiveWarForDomain(domainID string) *WarState {
 }
 
 // Функция запускает триггер войны
-func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, domain *DomainState) {
+func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, domain *DomainState) bool {
 	domain, ok := sim.State.Domains[domain.ID]
 	if !ok {
-		return
+		return false
 	}
 
 	// Домен никто не контролирует - смысла воевать нет
 	if domain.ControlledBy == "none" || domain.ControlledBy == "" {
-		return
+		return false
 	}
 
 	if defender.ID == attacker.ID {
-		return
+		return false
 	}
 
 	// Если война по домену уже идёт — ничего не делаем
 	if sim.getActiveWarForDomain(domain.ID) != nil {
-		return
+		return false
 	}
 
 	// Рассчитываем осведомлённость акатующего о силе защитника на домене
@@ -101,7 +101,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		})
 		sim.EmitEvent(gameEventBuillder.Build())
 		sim.FinishWar(war, attacker.ID, defender.ID, domain)
-		return
+		return true
 	}
 
 	// Проверка: атакующий должен иметь минимальное соотношение сил
@@ -122,7 +122,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			MinStrengthRatio:      MinAttackStrengthRatio,
 		})
 		sim.EmitEvent(gameEventBuilder.Build())
-		return
+		return false
 	}
 
 	warID := fmt.Sprintf("war:%s:%s:%s:%d", domain.ID, attacker.ID, defender.ID, rand.Int())
@@ -177,6 +177,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		MinStrengthRatio:      MinAttackStrengthRatio,
 	})
 	sim.EmitEvent(gameEventBuilder.Build())
+	return true
 }
 
 // Подсчёт активных войн фракции
