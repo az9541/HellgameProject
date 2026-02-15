@@ -7,22 +7,19 @@ package main
 // , который может быть использован в любом месте симулятора мира.
 
 func (sim *WorldSimulator) EmitEvent(event GameEvent) GameEvent {
-	sim.eventMu.Lock()
-	worldEvent := sim.emitEventLocked(event) // только лог
-	sim.eventMu.Unlock()
+	sim.mu.Lock()
+	defer sim.mu.Unlock()
+	return sim.emitEventLocked(event)
+}
 
+// emitEventLocked - внутренний метод для генерации событий, который должен вызываться с уже заблокированным sim.mu.
+// Нужен для того, чтобы избежать двойного блокирования,
+// если EmitEvent вызывается изнутри других методов, которые уже держат блокировку.
+// emitEventLocked делает работу с EventLog и публикацией в bus.
+func (sim *WorldSimulator) emitEventLocked(event GameEvent) GameEvent {
+	sim.State.EventLog = append(sim.State.EventLog, event)
 	if sim.EventBus != nil {
 		sim.EventBus.Publish(event)
 	}
-	return worldEvent
-}
-
-// emitEventLocked - внутренний метод для генерации событий, который должен вызываться с уже заблокированным eventMu.
-// Нужен для того, чтобы избежать двойного блокирования,
-// если EmitEvent вызывается изнутри других методов, которые уже держат блокировку.
-// emitEventLocked делает ТОЛЬКО работу с EventLog и метаданными
-func (sim *WorldSimulator) emitEventLocked(event GameEvent) GameEvent {
-
-	sim.State.EventLog = append(sim.State.EventLog, event)
 	return event
 }
