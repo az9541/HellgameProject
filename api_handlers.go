@@ -110,6 +110,7 @@ func handleGetWorldState(w http.ResponseWriter, r *http.Request, sim *WorldSimul
 		"factions":       sim.copyFactionStates(),
 		"domains":        sim.copyDomainStates(),
 		"event_log_size": len(sim.State.EventLog),
+		"wars":           sim.copyWars(),
 	})
 }
 
