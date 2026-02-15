@@ -26,7 +26,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 						"description": "Domain is unclaimed but has high influence. Faction attempts to take it over without war.",
 					},
 				})
-				sim.EventBus.Publish(gameEventBuillder.Build())
+				sim.emitEventLocked(gameEventBuillder.Build())
 				sim.attemptDomainTakeover(faction, dom, dom.Influence[faction.ID])
 				continue
 			}
@@ -43,7 +43,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 						"description":       "Attractiveness is too low to justify war. Faction decides to avoid conflict for now.",
 					},
 				})
-				sim.EventBus.Publish(gameEventBuillder.Build())
+				sim.emitEventLocked(gameEventBuillder.Build())
 				continue
 			}
 			gameEventBuillder := NewBuilderGenericEvent()
@@ -57,7 +57,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 					"description":       "Attractiveness is high enough to consider war. Evaluating further conditions...",
 				},
 			})
-			sim.EventBus.Publish(gameEventBuillder.Build())
+			sim.emitEventLocked(gameEventBuillder.Build())
 			warStarted := sim.StartWarTrigger(faction, sim.State.Factions[dom.ControlledBy], dom)
 			if warStarted {
 				break // Если война началась, не рассматриваем другие домены в этом тике
@@ -85,7 +85,7 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	probability := baseProbability * (1.0 + influence)
 	if probability >= 0.6 {
 		sim.transferDomainControl(domain, attacker)
-		sim.EmitEvent(GameEvent{
+		sim.emitEventLocked(GameEvent{
 			Type:      "DOMAIN_TAKEOVER",
 			Tick:      sim.State.GlobalTick,
 			EventKind: EventKindGeneric,
@@ -97,7 +97,7 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 				},
 			}})
 	} else {
-		sim.EventBus.Publish(GameEvent{
+		sim.emitEventLocked(GameEvent{
 			Type:      "TAKEOVER_FAILED",
 			Tick:      sim.State.GlobalTick,
 			EventKind: EventKindGeneric,
@@ -142,7 +142,7 @@ func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	domain1.Stability = minFloat(domain1.Stability+10, 100)
 	domain2.Stability = minFloat(domain2.Stability+10, 100)
 	faction.Resources += 10
-	sim.EventBus.Publish(GameEvent{
+	sim.emitEventLocked(GameEvent{
 		Type:      "TRADE_ROUTE",
 		Tick:      sim.State.GlobalTick,
 		EventKind: EventKindGeneric,
@@ -268,6 +268,7 @@ func (faction *FactionState) calcDomainAttractiveness(domain *DomainState, influ
 	stabFactor := clamp(domain.Stability/100.0, 0.1, 1)
 	inflFactor := clamp(influence, 0, 1) * 2.0
 	dangerFactor := 3.0 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
+	resFactor := 1.0 + clamp(domain.Resources/(faction.Resources+1.0), 0, 1.5)
 	warPenalty := 1.0 - clamp(float64(activeWars)*0.2, 0, 0.8)
-	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty
+	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty * resFactor
 }
