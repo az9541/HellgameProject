@@ -10,9 +10,7 @@ import (
 type WorldSimulator struct {
 	// State
 	State *WorldState
-	// Event tracking
-	eventMu sync.RWMutex
-	mu      sync.RWMutex
+	mu    sync.RWMutex
 	// Channels for goroutines
 	stop     chan bool
 	EventBus *EventPublisher
@@ -20,54 +18,51 @@ type WorldSimulator struct {
 
 // FactionState отслеживает состояние фракции
 type FactionState struct {
-	ID             string
-	Name           string
-	Power          float64            // 0-100
-	Territory      float64            // total size
-	DomainsHeld    []string           // domain IDs
-	Attitude       map[string]float64 // towards other factions: -100 to +100
-	Resources      float64            // wealth/supplies
-	MilitaryForce  float64            // strength 0-100
-	LastActionTime int64
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Power          float64            `json:"power"`
+	Territory      float64            `json:"territory"`
+	DomainsHeld    []string           `json:"domains_held"`
+	Attitude       map[string]float64 `json:"attitude"`
+	Resources      float64            `json:"resources"`
+	MilitaryForce  float64            `json:"military_force"`
+	LastActionTime int64              `json:"last_action_time"`
 }
 
 // DomainState отслеживает состояние домена
 type DomainState struct {
-	ID              string
-	Name            string
-	Stability       float64 // 0-100
-	ControlledBy    string  // faction ID
-	DangerLevel     int     // 1-10
-	Population      int
-	Mood            string   // "stable", "unrest", "rebellion"
-	Events          []string // event IDs that happened here
-	Influence       map[string]float64
-	AdjacentDomains []string // Neighbours to domain
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	Stability       float64            `json:"stability"`
+	ControlledBy    string             `json:"controlled_by"`
+	DangerLevel     int                `json:"danger_level"`
+	Population      int                `json:"population"`
+	Mood            string             `json:"mood"`
+	Events          []string           `json:"events"`
+	Influence       map[string]float64 `json:"influence"`
+	AdjacentDomains []string           `json:"adjacent_domains"`
+	Resources       float64            `json:"resources"`
 }
 
 type WarState struct {
-	ID             string // "war:<domainID>:<attackerID>:<defenderID>"
-	AttackerID     string
-	DefenderID     string
-	DomainID       string
-	StartTick      int64
-	LastUpdateTick int64
-	TicksDuration  int64
-	// Замороженные плотности влияния на момент начала войны
-	FrozenFactionsDenseties map[string]float64
-	// Выделенные контингенты на войну (фиксируются при старте)
-	AttackerCommittedForce float64 // начальный контингент атакующего
-	DefenderCommittedForce float64 // начальный контингент защитника
-	AttackerCurrentForce   float64 // текущие силы контингента атакующего
-	DefenderCurrentForce   float64 // текущие силы контингента защитника
-	// Динамика войны
-	Momentum       float64 // положительное — преимущество атакующего
-	AttackerMorale float64 // [0,100]
-	DefenderMorale float64 // [0,100]
-	// Итоги
-	IsOver    bool
-	WinnersID map[string]string
-	LosersID  map[string]string
+	ID                      string             `json:"id"`
+	AttackerID              string             `json:"attacker_id"`
+	DefenderID              string             `json:"defender_id"`
+	DomainID                string             `json:"domain_id"`
+	StartTick               int64              `json:"start_tick"`
+	LastUpdateTick          int64              `json:"last_update_tick"`
+	TicksDuration           int64              `json:"ticks_duration"`
+	FrozenFactionsDenseties map[string]float64 `json:"frozen_factions_denseties"`
+	AttackerCommittedForce  float64            `json:"attacker_committed_force"`
+	DefenderCommittedForce  float64            `json:"defender_committed_force"`
+	AttackerCurrentForce    float64            `json:"attacker_current_force"`
+	DefenderCurrentForce    float64            `json:"defender_current_force"`
+	Momentum                float64            `json:"momentum"`
+	AttackerMorale          float64            `json:"attacker_morale"`
+	DefenderMorale          float64            `json:"defender_morale"`
+	IsOver                  bool               `json:"is_over"`
+	WinnersID               map[string]string  `json:"winners_id"`
+	LosersID                map[string]string  `json:"losers_id"`
 }
 
 // SimulationDelta - результат симуляции
@@ -136,7 +131,7 @@ func (sim *WorldSimulator) Tick() {
 	if sim.State.GlobalTick%9 == 0 {
 		event := sim.generateTickEvent(sim.State.GlobalTick)
 		if event != nil {
-			sim.EmitEvent(*event)
+			sim.emitEventLocked(*event)
 		}
 	}
 	// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
@@ -152,7 +147,9 @@ func (sim *WorldSimulator) Tick() {
 
 // Simulate запускает симуляцию на N часов
 func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
+	sim.mu.RLock()
 	startTime := sim.State.GlobalTick
+	sim.mu.RUnlock()
 	endTime := startTime + ticks
 
 	for tick := startTime; tick < endTime; tick++ {
@@ -160,17 +157,20 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 	}
 
 	// Return delta (only changes)
+	sim.mu.RLock()
 	delta := &SimulationDelta{
 		TicksSimulated: ticks,
-		Events:         sim.State.EventLog,
+		Events:         sim.copyEventLog(),
 		FactionStates:  sim.copyFactionStates(),
 		DomainStates:   sim.copyDomainStates(),
 		GlobalTick:     sim.State.GlobalTick,
 	}
+	completionTick := sim.State.GlobalTick
+	sim.mu.RUnlock()
 
 	sim.EmitEvent(GameEvent{
 		Type:      "SIMULATION_COMPLETED",
-		Tick:      sim.State.GlobalTick,
+		Tick:      completionTick,
 		EventKind: EventKindGeneric,
 		EventData: GenericEventData{
 			EventKind: EventKindGeneric,
