@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 )
@@ -56,8 +57,9 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	commitmentRatio := 0.4 + 0.2*(strengthRatio-MinAttackStrengthRatio)/(2.0-MinAttackStrengthRatio)
 	commitmentRatio = clamp(commitmentRatio, 0.3, 0.7)
 
-	attackerCommitted := attacker.MilitaryForce * commitmentRatio
-	defenderCommitted := defender.MilitaryForce * 0.5 // защитник выделяет 50%
+	attackerCommitted := (attacker.MilitaryForce * commitmentRatio) * sim.factionWealthIndex(attacker)
+	defenderCommitted := (defender.MilitaryForce * 0.5) * sim.factionWealthIndex(defender) // защитник выделяет 50%
+	log.Printf("faction wealth attacker: %f", sim.factionWealthIndex(attacker))
 
 	if baseDefenderStrength <= 0 {
 		// В auto-win ветке контингент тоже должен считаться выделенным,
@@ -103,6 +105,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			Ratio:                 strengthRatio,
 			MinStrengthRatio:      MinAttackStrengthRatio,
 		})
+
 		sim.emitEventLocked(gameEventBuillder.Build())
 		sim.FinishWar(war, attacker.ID, defender.ID, domain)
 		return true
@@ -215,13 +218,13 @@ func (sim *WorldSimulator) UpdateWars() {
 		}
 
 		// Проверяем случай автоматической победы из-за нулевой силы контингента
-		autoEndWar, reason := sim.checkAutoEndWar(war, attacker, defender, domain)
+		autoEndWar, reason, winnerID, loserID := sim.checkAutoEndWar(war, attacker, defender, domain)
 		if autoEndWar {
 			warEventBuilder := sim.buildWarEndedEvent(war, attacker, defender, domain, reason,
 				(1.0-war.AttackerCurrentForce/war.AttackerCommittedForce)*100,
 				(1.0-war.DefenderCurrentForce/war.DefenderCommittedForce)*100)
 			sim.emitEventLocked(warEventBuilder.Build())
-			sim.FinishWar(war, attacker.ID, defender.ID, domain)
+			sim.FinishWar(war, winnerID, loserID, domain)
 			continue
 		}
 
@@ -453,20 +456,20 @@ func (sim *WorldSimulator) buildWarEndedEvent(war *WarState, attacker *FactionSt
 	return warEventBuilder
 }
 
-func (sim *WorldSimulator) checkAutoEndWar(war *WarState, attacker *FactionState, defender *FactionState, domain *DomainState) (ended bool, reason string) {
+func (sim *WorldSimulator) checkAutoEndWar(war *WarState, attacker *FactionState, defender *FactionState, domain *DomainState) (ended bool, reason string, winnerID, loserID string) {
 	if war.DefenderCurrentForce <= 0 {
 		war.IsOver = true
 		war.WinnersID = map[string]string{attacker.ID: "defender_zero_force"}
 		war.LosersID = map[string]string{defender.ID: "zero_force"}
-		return true, "defender_annihilated"
+		return true, "defender_annihilated", attacker.ID, defender.ID
 	}
 	if war.AttackerCurrentForce <= 0 {
 		war.IsOver = true
 		war.WinnersID = map[string]string{defender.ID: "attacker_zero_force"}
 		war.LosersID = map[string]string{attacker.ID: "zero_force"}
-		return true, "attacker_annihilated"
+		return true, "attacker_annihilated", defender.ID, attacker.ID
 	}
-	return false, ""
+	return false, "", "", ""
 }
 
 func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, defender *FactionState,
