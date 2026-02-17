@@ -35,7 +35,7 @@ type DomainState struct {
 	Name            string             `json:"name"`
 	Stability       float64            `json:"stability"`
 	ControlledBy    string             `json:"controlled_by"`
-	DangerLevel     int                `json:"danger_level"`
+	DangerLevel     float64            `json:"danger_level"`
 	Population      int                `json:"population"`
 	Mood            string             `json:"mood"`
 	Events          []string           `json:"events"`
@@ -134,11 +134,10 @@ func (sim *WorldSimulator) Tick() {
 			sim.emitEventLocked(*event)
 		}
 	}
-	// 4. Раз в 12 тиков (60 сек) обновляем стабильность доменов
-	if sim.State.GlobalTick%12 == 0 {
-		sim.updateDomainStability()
-	}
-	sim.updateFactionMilitaryForce()
+	sim.UpdateDomainStability()
+	sim.UpdateDomainDanger()
+	sim.UpdateFactionMilitaryForce()
+	sim.UpdateDomainResources()
 	sim.UpdateWars()
 
 	// 5. И только в конце обновляем время
