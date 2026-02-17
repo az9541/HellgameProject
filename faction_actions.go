@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"math/rand"
 	"sort"
 )
@@ -83,7 +84,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain *DomainState, influence float64) {
 	baseProbability := (attacker.MilitaryForce / 100) * (1 - float64(domain.DangerLevel)/20)
 	probability := baseProbability * (1.0 + influence)
-	if probability >= 0.6 {
+	if probability >= 0.52 {
 		sim.transferDomainControl(domain, attacker)
 		sim.emitEventLocked(GameEvent{
 			Type:      "DOMAIN_TAKEOVER",
@@ -236,12 +237,18 @@ func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 		factionsInWar[war.DefenderID] = struct{}{}
 	}
 	for _, faction := range sim.State.Factions {
-		recoveringModifier := sim.calculateForcesRecorevingModifier(faction)
 		baseRegen := 1.0
 		if _, ok := factionsInWar[faction.ID]; ok {
 			baseRegen = 0.1
 		}
-		faction.MilitaryForce = minFloat(faction.MilitaryForce+baseRegen*recoveringModifier, MaxMilitaryForce)
+		faction.MilitaryForce = minFloat(faction.MilitaryForce+baseRegen*sim.factionWealthIndex(faction), MaxMilitaryForce)
+	}
+}
+
+func (sim *WorldSimulator) UpdateFactionsOtherParameters() {
+	for _, faction := range sim.State.Factions {
+		faction.Power = clamp(faction.Power+(sim.factionWealthIndex(faction)-0.5)*3, 5, 100)
+		faction.Territory = float64(len(faction.DomainsHeld))
 	}
 }
 
@@ -308,7 +315,7 @@ func (sim *WorldSimulator) calculateForcesRecorevingModifier(faction *FactionSta
 
 	}
 	averageMultiplier := totalMultiplier / float64(len(controlledDomains))
-	return clamp(averageMultiplier, 0.25, 3.0)
+	return clamp(averageMultiplier, 0.25, 3.0) * sim.factionWealthIndex(faction)
 }
 
 func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimulator) (bool, []*DomainState) {
@@ -333,9 +340,51 @@ func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimul
 func (faction *FactionState) calcDomainAttractiveness(domain *DomainState, influence float64, activeWars int) float64 {
 	popFactor := clamp(float64(domain.Population)/10000.0, 0.1, 1)
 	stabFactor := clamp(domain.Stability/100.0, 0.1, 1)
-	inflFactor := clamp(influence, 0, 1) * 2.0
-	dangerFactor := 3.0 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
+	inflFactor := clamp(influence, 0, 1) * 4.0
+	dangerFactor := 1.3 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
 	resFactor := 1.0 + clamp(domain.Resources/(faction.Resources+1.0), 0, 1.5)
 	warPenalty := 1.0 - clamp(float64(activeWars)*0.2, 0, 0.8)
+	//controlledFactionWeakness := clamp(((100-faction.MilitaryForce)/faction.Power)*3, 0.2, 3.0)
 	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty * resFactor
+}
+
+// Возвращает индекс жизнеспособности фракции, который влияет на всё в самой фракции - от восстановления сил до вероятности захвата доменов
+func (sim *WorldSimulator) factionWealthIndex(faction *FactionState) (wealthIndex float64) {
+	// Собираем все домены, которые контролирует фракция
+	controlledDomains := make([]*DomainState, 0)
+	for _, domainID := range faction.DomainsHeld {
+		if domain, ok := sim.State.Domains[domainID]; ok {
+			controlledDomains = append(controlledDomains, domain)
+		}
+	}
+	if len(controlledDomains) == 0 {
+		return 0.1 // Если нет доменов, индекс низкий
+	}
+	domainCountIndex := clamp(float64(len(controlledDomains))/float64(len(sim.State.Domains)), 0.1, 1.0)
+	// Считаем среднюю стабильность в доменах фракции
+	avgStability := 0.0
+	avgDanger := 0.0
+	for _, domain := range controlledDomains {
+		avgStability += domain.Stability
+		avgDanger += domain.DangerLevel
+	}
+	avgStability /= float64(len(controlledDomains))
+	avgDanger /= float64(len(controlledDomains))
+
+	// Считаем долю населения, контролируемого фракцией от общего населения всех доменов
+	totalPopulation := 0
+	factionPopulation := 0
+	for _, domain := range sim.State.Domains {
+		totalPopulation += domain.Population
+		if domain.ControlledBy == faction.ID {
+			factionPopulation += domain.Population
+		}
+	}
+	var popShare float64 = float64(factionPopulation) / float64(totalPopulation)
+	var popIndex float64 = clamp(math.Sqrt(popShare), 0.1, 1.0)
+
+	stabilityIndex := clamp(avgStability/100.0, 0.05, 1.0)
+	dangerIndex := clamp(1.0-avgDanger/10.0, 0.05, 1.0)
+	wealthIndex = clamp(0.35*stabilityIndex+0.30*dangerIndex+0.20*popIndex+0.15*domainCountIndex, 0.05, 1.0)
+	return wealthIndex
 }
