@@ -4,33 +4,145 @@ import (
 	"sort"
 )
 
-// updateDomainStability обновляет стабильность всех доменов
-func (sim *WorldSimulator) updateDomainStability() {
+// UpdateDomainStability обновляет стабильность всех доменов
+func (sim *WorldSimulator) UpdateDomainStability() {
 	for _, domain := range sim.State.Domains {
-		controller := sim.State.Factions[domain.ControlledBy]
-		if controller == nil {
-			domain.Stability = maxFloat(domain.Stability-2, 0) // Контроля нет - уходим в хаос
-			continue
+		stabilityRegen := 0.1 // Базовое восстановление стабильности
+		stabilityRegenModifier := 1.0
+
+		// Война снижает стабильность
+		if sim.getActiveWarForDomain(domain.ID) != nil {
+			stabilityRegenModifier *= 0.5
+		}
+		// Модификатор владельца домена
+		switch domain.ControlledBy {
+		case FactionNone:
+			stabilityRegenModifier *= 0.5
+		case FactionCorporateConsortium:
+			stabilityRegenModifier *= 1.2
+		case FactionRepentantCommunes:
+			stabilityRegenModifier *= 1.5
+		case FactionNeoTormentors:
+			stabilityRegenModifier *= 0.7
+		}
+		// Модификатор популяции
+		switch {
+		case domain.Population >= 6000:
+			stabilityRegenModifier *= 0.85
+		case domain.Population >= 4000:
+			stabilityRegenModifier *= 0.92
+		case domain.Population >= 2000:
+			stabilityRegenModifier *= 0.93
+		case domain.Population >= 1000:
+			stabilityRegenModifier *= 0.95
+		default:
+			stabilityRegenModifier *= 1.0
 		}
 
-		// Стабильность доменов в зависимости от того, кто их контроллирует
-		if controller.ID == FactionCorporateConsortium {
-			// Corporate = stable but exploitative
-			domain.Stability = minFloat(domain.Stability+1, 80)
-		} else if controller.ID == FactionRepentantCommunes {
-			// Communes = moderate stability, good morale
-			domain.Stability = minFloat(domain.Stability+2, 90)
-		} else if controller.ID == FactionNeoTormentors {
-			// Neo-Tormentors = oppressive but effective
-			domain.Stability = minFloat(domain.Stability+0.5, 70)
+		// Модификатор уровня опасности
+		switch {
+		case domain.DangerLevel >= 9:
+			stabilityRegenModifier *= 0.7
+		case domain.DangerLevel >= 7:
+			stabilityRegenModifier *= 0.85
+		case domain.DangerLevel >= 5:
+			stabilityRegenModifier *= 0.95
+		case domain.DangerLevel >= 3:
+			stabilityRegenModifier *= 1.0
+		case domain.DangerLevel >= 1:
+			stabilityRegenModifier *= 1.05
+		default:
+			stabilityRegenModifier *= 1.1
 		}
 
-		// Danger level decreases with stability
-		if domain.Stability > 70 {
-			domain.DangerLevel = maxInt(domain.DangerLevel-1, 1)
-		} else if domain.Stability < 30 {
-			domain.DangerLevel = minInt(domain.DangerLevel+1, 10)
+		finalStabilityChange := stabilityRegen * stabilityRegenModifier
+		stabilityFactor := 1 + (finalStabilityChange - stabilityRegen)
+		domain.Stability = clamp(domain.Stability*stabilityFactor, 0, 100)
+	}
+}
+
+func (sim *WorldSimulator) UpdateDomainDanger() {
+	for _, domain := range sim.State.Domains {
+		dangerChange := 0.0
+		if sim.getActiveWarForDomain(domain.ID) != nil {
+			dangerChange += 0.2
 		}
+		switch domain.ControlledBy {
+		case FactionNone:
+			dangerChange += 0.1
+		case FactionCorporateConsortium:
+			dangerChange -= 0.05
+		case FactionRepentantCommunes:
+			dangerChange -= 0.1
+		case FactionNeoTormentors:
+			dangerChange += 0.05
+		}
+		switch {
+		case domain.Population >= 6000:
+			dangerChange -= 0.1
+		case domain.Population >= 4000:
+			dangerChange -= 0.05
+		case domain.Population >= 2000:
+			dangerChange -= 0.025
+		case domain.Population >= 1000:
+			dangerChange += 0.025
+		default:
+			dangerChange += 0.01
+		}
+		domain.DangerLevel = clamp(domain.DangerLevel+dangerChange, 0, 10)
+	}
+}
+func (sim *WorldSimulator) UpdateDomainResources() {
+	for _, domain := range sim.State.Domains {
+		resRegen := 2.0      // Базовое восстановление ресурсов
+		resMultiplier := 1.0 // Модификатор восстановления
+
+		if sim.getActiveWarForDomain(domain.ID) != nil {
+			resMultiplier = 0.5 // Война является серьёзным препятствием для восстановления ресурсов
+		}
+		if domain.ControlledBy == FactionNone {
+			resMultiplier *= 1.35 // Неконтролируемые домены восстанавливают ресурсы быстрее
+		}
+		switch {
+		case domain.Stability >= 80:
+			resMultiplier *= 3.0
+		case domain.Stability >= 60:
+			resMultiplier *= 1.5
+		case domain.Stability >= 40:
+			resMultiplier *= 1.2
+		case domain.Stability >= 20:
+			resMultiplier *= 0.8
+		default:
+			resMultiplier *= 0.4
+		}
+		switch {
+		case domain.Population >= 6000:
+			resMultiplier *= 2.0
+		case domain.Population >= 4000:
+			resMultiplier *= 1.5
+		case domain.Population >= 2000:
+			resMultiplier *= 1.2
+		case domain.Population >= 1000:
+			resMultiplier *= 0.8
+		default:
+			resMultiplier *= 0.5
+		}
+		switch {
+		case domain.DangerLevel >= 9:
+			resMultiplier *= 0.85
+		case domain.DangerLevel >= 7:
+			resMultiplier *= 1.1
+		case domain.DangerLevel >= 5:
+			resMultiplier *= 1.25
+		case domain.DangerLevel >= 3:
+			resMultiplier *= 1.1
+		case domain.DangerLevel >= 1:
+			resMultiplier *= 0.9
+		default:
+			resMultiplier *= 0.9
+		}
+		resMultiplier = 1 + (resMultiplier-1)*0.6
+		domain.Resources = minFloat(domain.Resources+resRegen*resMultiplier, 100)
 	}
 }
 
@@ -61,7 +173,7 @@ func (sim *WorldSimulator) transferDomainControl(domain *DomainState, newOwner *
 	}
 
 	if newOwner == nil {
-		domain.ControlledBy = "none"
+		domain.ControlledBy = FactionNone
 		return
 	}
 
