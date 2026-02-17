@@ -137,6 +137,7 @@ func (sim *WorldSimulator) Tick() {
 	sim.UpdateDomainStability()
 	sim.UpdateDomainDanger()
 	sim.UpdateFactionMilitaryForce()
+	sim.UpdateFactionsOtherParameters()
 	sim.UpdateDomainResources()
 	sim.UpdateWars()
 
@@ -187,7 +188,7 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 // runTimeLoop - главный цикл фоновой симуляции
 func (sim *WorldSimulator) runTimeLoop() {
 	// 1 тик = 5 реальных секунд
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
