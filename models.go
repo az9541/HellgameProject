@@ -9,6 +9,7 @@ const (
 	FactionNeoTormentors       = "neo_tormentors"
 	FactionCaravanGuilds       = "caravan_guilds"
 	FactionAncientRemnants     = "ancient_remnants"
+	FactionNone                = "none"
 
 	// Domains (9 Circles of Hell)
 	DomainLimbo      = "limbo"
