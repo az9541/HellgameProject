@@ -24,7 +24,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	}
 
 	// Домен никто не контролирует - смысла воевать нет
-	if domain.ControlledBy == "none" || domain.ControlledBy == "" {
+	if domain.ControlledBy == FactionNone || domain.ControlledBy == "" {
 		return false
 	}
 
@@ -60,6 +60,10 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	defenderCommitted := defender.MilitaryForce * 0.5 // защитник выделяет 50%
 
 	if baseDefenderStrength <= 0 {
+		// В auto-win ветке контингент тоже должен считаться выделенным,
+		// иначе FinishWar вернёт бойцов, которых мы не списывали, и надует MilitaryForce.
+		attacker.MilitaryForce = math.Max(0, attacker.MilitaryForce-attackerCommitted)
+
 		warID := fmt.Sprintf("war:%s:%s:%s:%d", domain.ID, attacker.ID, defender.ID, rand.Int())
 		war := &WarState{
 			ID:             warID,
@@ -210,86 +214,19 @@ func (sim *WorldSimulator) UpdateWars() {
 			continue
 		}
 
-		// Замороженные константы плотностей влияния
-		frozenAttackerDensity := war.FrozenFactionsDenseties[attacker.ID]
-		frozenDefenderDensity := war.FrozenFactionsDenseties[defender.ID]
-
-		// Фактор разницы во влиянии
-		influenceRatio := frozenAttackerDensity - frozenDefenderDensity
-
-		// Текущие силы контингентов с учётом влияния на домене
-		effectiveAttackerForce := war.AttackerCurrentForce * (1.0 + frozenAttackerDensity)
-		effectiveDefenderForce := war.DefenderCurrentForce * (1.0 + frozenDefenderDensity)
-
 		// Проверяем случай автоматической победы из-за нулевой силы контингента
 		autoEndWar, reason := sim.checkAutoEndWar(war, attacker, defender, domain)
 		if autoEndWar {
-			waeEventBuilder := sim.buildWarEndedEvent(war, attacker, defender, domain, reason,
+			warEventBuilder := sim.buildWarEndedEvent(war, attacker, defender, domain, reason,
 				(1.0-war.AttackerCurrentForce/war.AttackerCommittedForce)*100,
 				(1.0-war.DefenderCurrentForce/war.DefenderCommittedForce)*100)
-			sim.emitEventLocked(waeEventBuilder.Build())
+			sim.emitEventLocked(warEventBuilder.Build())
 			sim.FinishWar(war, attacker.ID, defender.ID, domain)
 			continue
 		}
 
 		// ============ ЗАКОН ЛАНЧЕСТЕРА-ОСИПОВА (квадратичный) с затуханием ============
-
-		// Функция морали: влияет на эффективность бойцов
-		moraleFactor := func(morale float64) float64 {
-			// Нелинейная зависимость: при морали 100 -> 1.0, при 50 -> 0.7, при 0 -> 0.3
-			return 0.3 + 0.7*(morale/100.0)
-		}
-
-		// Функция истощения: чем меньше осталось войск от начального, тем менее эффективны
-		// Это создаёт нелинейность: истощённые армии наносят меньше урона
-		exhaustionFactor := func(current, initial float64) float64 {
-			if initial <= 0 {
-				return 0.3
-			}
-			ratio := current / initial
-			// При 100% сил -> 1.0, при 50% -> 0.75, при 25% -> 0.5
-			return 0.3 + 0.7*math.Sqrt(ratio)
-		}
-
-		// Штраф за многофронтовую войну
-		attackerWars := sim.countActiveWars(attacker.ID)
-		defenderWars := sim.countActiveWars(defender.ID)
-		multiFrontPenalty := func(warsCount int) float64 {
-			if warsCount <= 1 {
-				return 1.0
-			}
-			return 1.0 / (1.0 + float64(warsCount-1)*0.25) // -25% за каждую дополнительную войну
-		}
-
-		// Штраф за опасность домена
-		dangerModifier := 1.0 - float64(domain.DangerLevel)/200.0
-
-		// Бонус за влияние на территории
-		influenceBonus := 1.0 + influenceRatio*0.2
-
-		// Коэффициенты эффективности (alpha для атакующего, beta для защитника)
-		alphaBase := 0.008 * (1.0 + frozenAttackerDensity) *
-			moraleFactor(war.AttackerMorale) *
-			exhaustionFactor(war.AttackerCurrentForce, war.AttackerCommittedForce) *
-			multiFrontPenalty(attackerWars) *
-			dangerModifier *
-			influenceBonus
-
-		betaBase := 0.008 * (1.0 + frozenDefenderDensity) *
-			moraleFactor(war.DefenderMorale) *
-			exhaustionFactor(war.DefenderCurrentForce, war.DefenderCommittedForce) *
-			multiFrontPenalty(defenderWars) *
-			dangerModifier *
-			1.15 / influenceBonus // защитник +15% за оборону
-
-		// Стохастический элемент (±10%)
-		alphaRandom := alphaBase * (0.9 + rand.Float64()*0.2)
-		betaRandom := betaBase * (0.9 + rand.Float64()*0.2)
-
-		// Потери по квадратичному закону Ланчестера
-		// dA/dt = -beta * B, dB/dt = -alpha * A
-		attackerLosses := betaRandom * effectiveDefenderForce
-		defenderLosses := alphaRandom * effectiveAttackerForce
+		attackerLosses, defenderLosses, lanchesterInvariant := sim.computeBattleCoefficients(attacker, defender, domain, war)
 
 		// Применяем потери к контингентам
 		war.AttackerCurrentForce = math.Max(0, war.AttackerCurrentForce-attackerLosses)
@@ -302,10 +239,6 @@ func (sim *WorldSimulator) UpdateWars() {
 
 		attacker.Resources = clamp(attacker.Resources-attackerResourceCost, 0, 100)
 		defender.Resources = clamp(defender.Resources-defenderResourceCost, 0, 100)
-
-		// Инвариант Ланчестера для momentum
-		lanchesterInvariant := alphaRandom*effectiveAttackerForce*effectiveAttackerForce -
-			betaRandom*effectiveDefenderForce*effectiveDefenderForce
 
 		momentumChange := lanchesterInvariant * 0.0005
 		war.Momentum += momentumChange
@@ -464,10 +397,10 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId string, do
 
 	// Возвращаем выживших бойцов обратно в резервы фракций
 	if attacker, ok := sim.State.Factions[war.AttackerID]; ok {
-		attacker.MilitaryForce = clamp(attacker.MilitaryForce+war.AttackerCurrentForce, 0, 100)
+		attacker.MilitaryForce = clamp(attacker.MilitaryForce+war.AttackerCurrentForce, 0, MaxMilitaryForce)
 	}
 	if defender, ok := sim.State.Factions[war.DefenderID]; ok {
-		defender.MilitaryForce = clamp(defender.MilitaryForce+war.DefenderCurrentForce, 0, 100)
+		defender.MilitaryForce = clamp(defender.MilitaryForce+war.DefenderCurrentForce, 0, MaxMilitaryForce)
 	}
 
 	for factionID := range domain.Influence {
@@ -534,4 +467,76 @@ func (sim *WorldSimulator) checkAutoEndWar(war *WarState, attacker *FactionState
 		return true, "attacker_annihilated"
 	}
 	return false, ""
+}
+
+func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, defender *FactionState,
+	domain *DomainState, war *WarState) (alpha, beta, lanchesterInvariant float64) {
+	frozenAttackerDensity := war.FrozenFactionsDenseties[attacker.ID]
+	frozenDefenderDensity := war.FrozenFactionsDenseties[defender.ID]
+
+	// Фактор разницы во влиянии
+	influenceRatio := frozenAttackerDensity - frozenDefenderDensity
+
+	// Текущие силы контингентов с учётом влияния на домене
+	effectiveAttackerForce := war.AttackerCurrentForce * (1.0 + frozenAttackerDensity)
+	effectiveDefenderForce := war.DefenderCurrentForce * (1.0 + frozenDefenderDensity)
+	// Функция морали: влияет на эффективность бойцов
+	moraleFactor := func(morale float64) float64 {
+		// Нелинейная зависимость: при морали 100 -> 1.0, при 50 -> 0.7, при 0 -> 0.3
+		return 0.3 + 0.7*(morale/100.0)
+	}
+
+	// Функция истощения: чем меньше осталось войск от начального, тем менее эффективны
+	// Это создаёт нелинейность: истощённые армии наносят меньше урона
+	exhaustionFactor := func(current, initial float64) float64 {
+		if initial <= 0 {
+			return 0.3
+		}
+		ratio := current / initial
+		// При 100% сил -> 1.0, при 50% -> 0.75, при 25% -> 0.5
+		return 0.3 + 0.7*math.Sqrt(ratio)
+	}
+
+	// Штраф за многофронтовую войну
+	attackerWars := sim.countActiveWars(attacker.ID)
+	defenderWars := sim.countActiveWars(defender.ID)
+	multiFrontPenalty := func(warsCount int) float64 {
+		if warsCount <= 1 {
+			return 1.0
+		}
+		return 1.0 / (1.0 + float64(warsCount-1)*0.25) // -25% за каждую дополнительную войну
+	}
+
+	// Штраф за опасность домена
+	dangerModifier := 1.0 - float64(domain.DangerLevel)/200.0
+
+	// Бонус за влияние на территории
+	influenceBonus := 1.0 + influenceRatio*0.2
+
+	// Коэффициенты эффективности (alpha для атакующего, beta для защитника)
+	alphaBase := 0.008 * (1.0 + frozenAttackerDensity) *
+		moraleFactor(war.AttackerMorale) *
+		exhaustionFactor(war.AttackerCurrentForce, war.AttackerCommittedForce) *
+		multiFrontPenalty(attackerWars) *
+		dangerModifier *
+		influenceBonus
+
+	betaBase := 0.008 * (1.0 + frozenDefenderDensity) *
+		moraleFactor(war.DefenderMorale) *
+		exhaustionFactor(war.DefenderCurrentForce, war.DefenderCommittedForce) *
+		multiFrontPenalty(defenderWars) *
+		dangerModifier *
+		1.15 / influenceBonus // защитник +15% за оборону
+
+	// Стохастический элемент (±10%)
+	alphaRandom := alphaBase * (0.9 + rand.Float64()*0.2)
+	betaRandom := betaBase * (0.9 + rand.Float64()*0.2)
+
+	// Потери по квадратичному закону Ланчестера
+	// dA/dt = -beta * B, dB/dt = -alpha * A
+	alpha = alphaRandom * effectiveAttackerForce
+	beta = betaRandom * effectiveDefenderForce
+	lanchesterInvariant = alphaRandom*effectiveAttackerForce*effectiveAttackerForce -
+		betaRandom*effectiveDefenderForce*effectiveDefenderForce
+	return alpha, beta, lanchesterInvariant
 }
