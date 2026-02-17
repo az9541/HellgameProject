@@ -15,7 +15,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 		}
 		activeWars := faction.getActiveWars(sim)
 		for _, dom := range topDomains {
-			if dom.ControlledBy == "none" {
+			if dom.ControlledBy == FactionNone {
 				gameEventBuillder := NewBuilderGenericEvent()
 				gameEventBuillder.SetType("TAKEOVER_ATTEMPT").SetTick(sim.State.GlobalTick).SetData(GenericEventData{
 					EventKind: EventKindGeneric,
@@ -226,7 +226,7 @@ func (faction *FactionState) getActiveWars(sim *WorldSimulator) []*WarState {
 	return activeWars
 }
 
-func (sim *WorldSimulator) updateFactionMilitaryForce() {
+func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 	factionsInWar := make(map[string]struct{})
 	for _, war := range sim.State.Wars {
 		if war == nil || war.IsOver {
@@ -236,12 +236,79 @@ func (sim *WorldSimulator) updateFactionMilitaryForce() {
 		factionsInWar[war.DefenderID] = struct{}{}
 	}
 	for _, faction := range sim.State.Factions {
+		recoveringModifier := sim.calculateForcesRecorevingModifier(faction)
+		baseRegen := 1.0
 		if _, ok := factionsInWar[faction.ID]; ok {
-			faction.MilitaryForce = minFloat(faction.MilitaryForce+0.1, MaxMilitaryForce)
-		} else {
-			faction.MilitaryForce = minFloat(faction.MilitaryForce+1, MaxMilitaryForce)
+			baseRegen = 0.1
+		}
+		faction.MilitaryForce = minFloat(faction.MilitaryForce+baseRegen*recoveringModifier, MaxMilitaryForce)
+	}
+}
+
+func (sim *WorldSimulator) calculateForcesRecorevingModifier(faction *FactionState) float64 {
+	// Собираем все домены, которые контролирует фракция
+	controlledDomains := make([]*DomainState, 0)
+	for _, domainID := range faction.DomainsHeld {
+		if domain, ok := sim.State.Domains[domainID]; ok {
+			controlledDomains = append(controlledDomains, domain)
 		}
 	}
+	if len(controlledDomains) == 0 {
+		return 1.0
+	}
+
+	totalMultiplier := 0.0
+	for _, domain := range controlledDomains {
+		domainMultiplier := 1.0
+
+		switch {
+		case domain.Population == 0:
+			domainMultiplier *= 0.1
+		case domain.Population >= 2000 && domain.Population < 8000:
+			domainMultiplier *= 1
+		case domain.Population >= 8000 && domain.Population < 15000:
+			domainMultiplier *= 1.5
+		case domain.Population >= 15000 && domain.Population < 20000:
+			domainMultiplier *= 2.0
+		case domain.Population >= 20000:
+			domainMultiplier *= 2.5
+		default:
+			domainMultiplier *= 0.9
+		}
+
+		switch {
+		case domain.DangerLevel >= 9:
+			domainMultiplier *= 0.5
+		case domain.DangerLevel >= 7:
+			domainMultiplier *= 0.75
+		case domain.DangerLevel >= 5:
+			domainMultiplier *= 0.9
+		case domain.DangerLevel >= 3:
+			domainMultiplier *= 1.1
+		case domain.DangerLevel >= 1:
+			domainMultiplier *= 1.25
+		default:
+			domainMultiplier *= 1.25
+		}
+
+		switch {
+		case domain.Resources >= 80:
+			domainMultiplier *= 2.5
+		case domain.Resources >= 50:
+			domainMultiplier *= 2.0
+		case domain.Resources >= 20:
+			domainMultiplier *= 1.5
+		case domain.Resources >= 10:
+			domainMultiplier *= 1.2
+		default:
+			domainMultiplier *= 0.8
+		}
+
+		totalMultiplier += domainMultiplier
+
+	}
+	averageMultiplier := totalMultiplier / float64(len(controlledDomains))
+	return clamp(averageMultiplier, 0.25, 3.0)
 }
 
 func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimulator) (bool, []*DomainState) {
