@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"sort"
 )
 
@@ -8,11 +9,28 @@ import (
 func (sim *WorldSimulator) UpdateDomainStability() {
 	for _, domain := range sim.State.Domains {
 		stabilityRegen := 0.1 // Базовое восстановление стабильности
-		stabilityRegenModifier := 1.0
+		stabilityRegenModifier := 1.1
+		domainEffects := sim.State.TimedEffects[domain.ID]
+
+		// Заполняем эффекты в домене, активные на текущем тике
+		activeEffects := domainEffects[:0]
+		for _, effect := range domainEffects {
+			if sim.State.GlobalTick >= effect.StartTick && sim.State.GlobalTick < effect.StartTick+effect.Duration {
+				activeEffects = append(activeEffects, effect)
+			}
+		}
 
 		// Война снижает стабильность
 		if sim.getActiveWarForDomain(domain.ID) != nil {
 			stabilityRegenModifier *= 0.5
+		}
+		// TODO!!! Учесть эффекты корректно. Не просто обновлять curvedEffect для одной фракции.
+		curvedEffect := 1.0
+		for _, effect := range activeEffects {
+			if effect.FactionID == FactionNeoTormentors {
+				effectCoefficient := float64(sim.State.GlobalTick-effect.StartTick) / float64(effect.Duration)
+				curvedEffect = 1 - effect.BasePenalty*math.Pow(10, -effect.DecayRate*effectCoefficient)
+			}
 		}
 		// Модификатор владельца домена
 		switch domain.ControlledBy {
@@ -23,7 +41,7 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		case FactionRepentantCommunes:
 			stabilityRegenModifier *= 1.5
 		case FactionNeoTormentors:
-			stabilityRegenModifier *= 0.7
+			stabilityRegenModifier *= curvedEffect
 		}
 		// Модификатор популяции
 		switch {
@@ -58,6 +76,7 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		finalStabilityChange := stabilityRegen * stabilityRegenModifier
 		stabilityFactor := 1 + (finalStabilityChange - stabilityRegen)
 		domain.Stability = clamp(domain.Stability*stabilityFactor, 0, 100)
+		sim.State.TimedEffects[domain.ID] = activeEffects
 	}
 }
 
@@ -75,7 +94,7 @@ func (sim *WorldSimulator) UpdateDomainDanger() {
 		case FactionRepentantCommunes:
 			dangerChange -= 0.1
 		case FactionNeoTormentors:
-			dangerChange += 0.05
+			dangerChange += 0.01
 		}
 		switch {
 		case domain.Population >= 6000:
@@ -199,3 +218,35 @@ func getDomainsList(keys []string, domains map[string]*DomainState) []*DomainSta
 	}
 	return domainsSlice
 }
+
+/*func (sim *WorldSimulator) StartDomainStabilityRecovery(domain *DomainState, faction *FactionState, duration int) {
+	// Подписываемся на событие окончания войны в этом домене
+	ch := sim.EventBus.Subscribe(10)
+
+	go func() {
+		defer sim.EventBus.Unsubscribe(ch)
+
+		ticksPassed := 0
+		for event := range ch {
+			if event.EventKind != EventKindTick {
+				continue
+			}
+			ticksPassed++
+			if ticksPassed >= duration {
+				return
+			}
+
+			sim.mu.Lock()
+			progress := float64(ticksPassed) / float64(duration)
+			var stabilityShift float64
+			switch faction.ID {
+			case FactionNeoTormentors:
+				stabilityShift = 0.15 * progress
+			default:
+				stabilityShift = 0.1 * progress
+			}
+			domain.Stability = clamp(domain.Stability+stabilityShift, 0, 100)
+			sim.mu.Unlock()
+		}
+	}()
+}*/
