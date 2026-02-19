@@ -11,4 +11,5 @@ const (
 	EventKindWorld      EventKind = "world"
 	EventKindTradeRoute EventKind = "trade_route"
 	EventKindGeneric    EventKind = "generic"
+	EventKindTick       EventKind = "tick"
 )
