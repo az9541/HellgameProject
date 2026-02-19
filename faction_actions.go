@@ -229,6 +229,10 @@ func (faction *FactionState) getActiveWars(sim *WorldSimulator) []*WarState {
 
 func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 	factionsInWar := make(map[string]struct{})
+	const (
+		wealthDecayThreshold = 0.22
+		decayStrength        = 1.5
+	)
 	for _, war := range sim.State.Wars {
 		if war == nil || war.IsOver {
 			continue
@@ -237,11 +241,20 @@ func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 		factionsInWar[war.DefenderID] = struct{}{}
 	}
 	for _, faction := range sim.State.Factions {
+		wealth := sim.factionWealthIndex(faction)
+		if wealth < wealthDecayThreshold {
+			decay := (wealthDecayThreshold - wealth) * decayStrength
+			faction.MilitaryForce = clamp(faction.MilitaryForce-decay, 0, MaxMilitaryForce)
+			continue
+		}
+
 		baseRegen := 1.0
 		if _, ok := factionsInWar[faction.ID]; ok {
 			baseRegen = 0.1
 		}
-		faction.MilitaryForce = minFloat(faction.MilitaryForce+baseRegen*sim.factionWealthIndex(faction), MaxMilitaryForce)
+
+		regen := baseRegen * (wealth - wealthDecayThreshold)
+		faction.MilitaryForce = clamp(faction.MilitaryForce+regen, 0, MaxMilitaryForce)
 	}
 }
 
