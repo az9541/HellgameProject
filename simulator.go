@@ -77,11 +77,21 @@ type SimulationDelta struct {
 // Полное состояние мира. По сути является снапшотом текущего тика.
 // Должно использоваться в передаче в Godot по API, а также для сохранения/загрузки игры.
 type WorldState struct {
-	Factions   map[string]*FactionState
-	Domains    map[string]*DomainState
-	Wars       map[string]*WarState
-	GlobalTick int64
-	EventLog   []GameEvent
+	Factions     map[string]*FactionState
+	Domains      map[string]*DomainState
+	Wars         map[string]*WarState
+	TimedEffects map[string][]*DomainTimedEffect
+	GlobalTick   int64
+	EventLog     []GameEvent
+}
+
+type DomainTimedEffect struct {
+	DomainID    string
+	FactionID   string
+	StartTick   int64
+	Duration    int64
+	BasePenalty float64
+	DecayRate   float64
 }
 
 // NewWorldSimulator создаёт новый симулятор
@@ -94,6 +104,7 @@ func NewWorldSimulator() *WorldSimulator {
 		GlobalTick: 0,
 		EventLog:   make([]GameEvent, 0),
 	}
+	state.TimedEffects = make(map[string][]*DomainTimedEffect)
 
 	sim := &WorldSimulator{
 		State:    state,
@@ -140,7 +151,6 @@ func (sim *WorldSimulator) Tick() {
 	sim.UpdateFactionsOtherParameters()
 	sim.UpdateDomainResources()
 	sim.UpdateWars()
-
 	// 5. И только в конце обновляем время
 	sim.State.GlobalTick++
 }
