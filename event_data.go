@@ -41,6 +41,8 @@ type WarEndedData struct {
 	Defender            string
 	Domain              string
 	Reason              string
+	WinnerID            string
+	LoserID             string
 	AttackerLossesPct   float64
 	DefenderLossesPct   float64
 	AttackerMorale      float64
