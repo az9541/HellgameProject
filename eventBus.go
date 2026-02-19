@@ -156,3 +156,51 @@ func StartEventLogger(bus *EventPublisher, buffer int) {
 		}
 	}()
 }
+
+func (sim *WorldSimulator) StartDomainEffectsSubscriber(buffer int) {
+	if sim.EventBus == nil {
+		return
+	}
+	ch := sim.EventBus.Subscribe(buffer)
+	go func() {
+		defer sim.EventBus.Unsubscribe(ch)
+		for event := range ch {
+			switch event.Type {
+			case "WAR_ENDED":
+				data, ok := event.EventData.(WarEndedData)
+				if !ok {
+					log.Printf("Invalid event data for WAR_ENDED: %+v", event.EventData)
+					continue
+				}
+				// По идее тут должны быть разные параметры для победителя, проигравшего, разных доменов и т.д.
+				// Но для простоты начнём с этого
+				if data.WinnerID == data.Attacker {
+					sim.mu.Lock()
+					x := DomainTimedEffect{
+						DomainID:    data.Domain,
+						FactionID:   data.Attacker,
+						StartTick:   event.Tick,
+						Duration:    30,
+						BasePenalty: 0.8,
+						DecayRate:   1.0,
+					}
+					sim.State.TimedEffects[data.Domain] = append(sim.State.TimedEffects[data.Domain], &x)
+					sim.mu.Unlock()
+				} else {
+					sim.mu.Lock()
+					x := DomainTimedEffect{
+						DomainID:    data.Domain,
+						FactionID:   data.Defender,
+						StartTick:   event.Tick,
+						Duration:    30,
+						BasePenalty: 0.4,
+						DecayRate:   0.2,
+					}
+					sim.State.TimedEffects[data.Domain] = append(sim.State.TimedEffects[data.Domain], &x)
+					sim.mu.Unlock()
+				}
+
+			}
+		}
+	}()
+}
