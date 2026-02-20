@@ -42,26 +42,24 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	attackerAwareness := awarenessFromInfluence(domain.Influence[attacker.ID])
 
 	// Базовые силы с учётом влияния на домене
-	baseAttackerStrength := attacker.MilitaryForce * (1.0 + domain.Influence[attacker.ID])
-	baseDefenderStrength := defender.MilitaryForce * (1.0 + domain.Influence[defender.ID])
-	estimateDefenderStrength := estimateForceWithAwareness(baseDefenderStrength, attackerAwareness)
 
-	// Проверка: атакующий должен иметь минимальное соотношение сил
+	estimateDefenderStrength := estimateForceWithAwareness(defender.MilitaryForce, attackerAwareness)
+
+	// Проверяем отношение силы атакующего к оценённой силе защитника
 	strengthRatio := 0.0
 	if estimateDefenderStrength > 0 {
-		strengthRatio = baseAttackerStrength / estimateDefenderStrength
+		strengthRatio = attacker.MilitaryForce / estimateDefenderStrength
 	}
 
-	// Расчёт выделяемого контингента (40-60% доступных сил)
-	// Больше выделяем, если уверены в победе
-	commitmentRatio := sim.factionWealthIndex(attacker) * (strengthRatio - MinAttackStrengthRatio) / (2.0 - MinAttackStrengthRatio)
-	commitmentRatio = clamp(commitmentRatio, 0.01, 0.7)
+	// Считаем, сколько атакующий ХОЧЕТ выделить
+	attackerWantedMilitaryPower := estimateDefenderStrength + 10 // Ожидаемая сила защитника + небольшой запас для уверенности
 
-	attackerCommitted := (attacker.MilitaryForce * commitmentRatio)
-	defenderCommitted := defender.MilitaryForce * sim.factionWealthIndex(defender)
+	// Считаем, сколько атакующий МОЖЕТ выделить
+	attackerCommitted := clamp(attackerWantedMilitaryPower*sim.factionWealthIndex(attacker), 0, attacker.MilitaryForce)
+	defenderCommitted := clamp(defender.MilitaryForce*sim.factionWealthIndex(defender), 0, defender.MilitaryForce)
 	log.Printf("faction wealth attacker: %f", sim.factionWealthIndex(attacker))
 
-	if baseDefenderStrength <= 0 {
+	if defender.MilitaryForce <= 0 {
 		// В auto-win ветке контингент тоже должен считаться выделенным,
 		// иначе FinishWar вернёт бойцов, которых мы не списывали, и надует MilitaryForce.
 		attacker.MilitaryForce = math.Max(0, attacker.MilitaryForce-attackerCommitted)
@@ -98,7 +96,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			Domain:                domain.Name,
 			DomainID:              domain.ID,
 			Reason:                "defender_zero_force",
-			ActualDefenderForce:   baseDefenderStrength,
+			ActualDefenderForce:   defender.MilitaryForce,
 			EstimateDefenderForce: estimateDefenderStrength,
 			AttackerCommitted:     attackerCommitted,
 			DefenderCommitted:     defenderCommitted,
@@ -121,7 +119,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 			Domain:                domain.Name,
 			DomainID:              domain.ID,
 			Reason:                "insufficient_strength",
-			ActualDefenderForce:   baseDefenderStrength,
+			ActualDefenderForce:   defender.MilitaryForce,
 			EstimateDefenderForce: estimateDefenderStrength,
 			AttackerCommitted:     attackerCommitted,
 			DefenderCommitted:     defenderCommitted,
@@ -176,7 +174,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 		Domain:                domain.Name,
 		DomainID:              domain.ID,
 		Reason:                "acceptable_strength_ratio",
-		ActualDefenderForce:   baseDefenderStrength,
+		ActualDefenderForce:   defender.MilitaryForce,
 		EstimateDefenderForce: estimateDefenderStrength,
 		AttackerCommitted:     attackerCommitted,
 		DefenderCommitted:     defenderCommitted,
