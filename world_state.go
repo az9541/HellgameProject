@@ -45,7 +45,7 @@ func (sim *WorldSimulator) copyDomainStates() map[string]*DomainState {
 		eventsCopy := make([]string, len(domain.Events))
 		copy(eventsCopy, domain.Events)
 
-		result[id] = &DomainState{ // ← используем result
+		result[id] = &DomainState{
 			ID:              domain.ID,
 			Name:            domain.Name,
 			Stability:       domain.Stability,
