@@ -39,6 +39,9 @@ const (
 	InfluenceToAwarenessFactor       = 0.8
 	TEMPDomainAttractivnessThreshold = 0.4
 
+	// Диффузия и KPP-уравнение
+	DiffusionThreshold = 0.25 // Минимальное влияние для диффузии
+
 	// War constants
 	MinAttackStrengthRatio = 0.65  // Минимальное соотношение силы атакующего к защитнику (65%)
 	WarResourceCost        = 5.0   // Стоимость войны в ресурсах
