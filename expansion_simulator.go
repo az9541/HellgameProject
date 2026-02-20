@@ -126,7 +126,7 @@ func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domai
 	}
 
 	// Коэффициенты модели (D — диффузия, r — локальный рост)
-	D := minFloat(1.0, 0.002+0.01*(faction.Power/100.0))
+	D := minFloat(1.0, 0.002+0.001*(faction.Power/100.0))
 	r := minFloat(0.1, 0.005+0.045*(faction.Territory/5.0))
 	dt := 1.0 // одна временная единица на шаг
 
