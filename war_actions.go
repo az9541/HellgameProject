@@ -537,7 +537,7 @@ func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, def
 		exhaustionFactor(war.DefenderCurrentForce, war.DefenderCommittedForce) *
 		multiFrontPenalty(defenderWars) *
 		dangerModifier *
-		1.15 / influenceBonus // защитник +15% за оборону
+		1.15 * influenceBonus // защитник +15% за оборону
 
 	// Стохастический элемент (±10%)
 	alphaRandom := alphaBase * (0.9 + rand.Float64()*0.2)
