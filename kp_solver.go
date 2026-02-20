@@ -9,6 +9,10 @@ func SolveKPGraph(u []float64, neighbors [][]int, D, r, dt float64, substeps int
 	n := len(u)
 	uWork := make([]float64, n)
 	copy(uWork, u)
+	// Эффективная функция для диффузии, которая обнуляет влияние ниже порога
+	eff := func(x float64) float64 {
+		return maxFloat(0, x-DiffusionThreshold)
+	}
 
 	dtSub := dt / float64(substeps)
 	for s := 0; s < substeps; s++ {
@@ -16,7 +20,8 @@ func SolveKPGraph(u []float64, neighbors [][]int, D, r, dt float64, substeps int
 		for i := 0; i < n; i++ {
 			diff := 0.0
 			for _, j := range neighbors[i] {
-				diff += (uWork[j] - uWork[i])
+				// Разница эффективного влияния между соседями
+				diff += (eff(uWork[j]) - eff(uWork[i]))
 			}
 			diffusion := D * diff
 			reaction := r * uWork[i] * (1.0 - uWork[i])
