@@ -38,6 +38,7 @@ const (
 	MinAwareness                     = 0.2
 	InfluenceToAwarenessFactor       = 0.8
 	TEMPDomainAttractivnessThreshold = 0.4
+	BaseOwnDomainInfluence           = 0.4
 
 	// Диффузия и KPP-уравнение
 	DiffusionThreshold = 0.25 // Минимальное влияние для диффузии
