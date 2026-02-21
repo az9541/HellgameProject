@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sort"
 )
 
 const (
@@ -17,7 +18,6 @@ const (
 // initializeFactionInfluence инициализирует влияние фракций на домены
 func (sim *WorldSimulator) initializeFactionInfluence() {
 	// Каждая фракция имеет минимальное влияние везде
-	baseInfluence := 0.001 // 0.1% везде по умолчанию
 
 	for _, faction := range sim.State.Factions {
 		for _, domain := range sim.State.Domains {
@@ -27,61 +27,40 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 
 			// Стартовое влияние: выше в своих доменах, ниже в чужих
 			if domain.ControlledBy == faction.ID {
-				domain.Influence[faction.ID] = 0.8 // 80% в своих
+				domain.Influence[faction.ID] = BaseOwnDomainInfluence // 80% в своих
 			} else {
-				domain.Influence[faction.ID] = baseInfluence // 5% везде
+				domain.Influence[faction.ID] = MinInfluence
 			}
 		}
 	}
 }
 
-// runKPPSimulation выполняет один шаг KPP (одно обновление влияния фракций)
 func (sim *WorldSimulator) runKPPSimulation() {
-	// Пересчитываем физику для каждой фракции один раз
-	keys := getSortedDomainKeys(sim.State.Domains)
-	domainsSlice := getDomainsList(keys, sim.State.Domains)
-	if len(domainsSlice) == 0 || len(sim.State.Factions) == 0 {
+	domainKeys := getSortedDomainKeys(sim.State.Domains)
+	domains := getDomainsList(domainKeys, sim.State.Domains)
+	if len(domains) == 0 || len(sim.State.Factions) == 0 {
 		return
 	}
 
-	newInfluence := make(map[string][]float64, len(sim.State.Factions))
-	for _, faction := range sim.State.Factions {
-		newInfluence[faction.ID] = sim.SimulateFactionExpansion(faction, domainsSlice, 1)
-	}
+	factionIDs := getSortedFactionKeys(sim.State.Factions)
+	u := sim.simulateCoupledKPPAndLV(factionIDs, domains, 1)
 
-	// Нормализуем влияние так, чтобы сумма по домену была 1.0
-	for i, domain := range domainsSlice {
-		sum := 0.0
-		for _, densities := range newInfluence {
-			if i < len(densities) {
-				sum += densities[i]
-			}
-		}
-		if sum <= 0 {
-			equal := 1.0 / float64(len(newInfluence))
-			for factionID := range newInfluence {
-				domain.Influence[factionID] = equal
-			}
-			continue
-		}
-		for factionID, densities := range newInfluence {
-			if i < len(densities) {
-				newNorm := densities[i] / sum
-				old := domain.Influence[factionID]
-				domain.Influence[factionID] = (1-normalizationSmoothing)*old + normalizationSmoothing*newNorm
-			}
+	for fIdx, factionID := range factionIDs {
+		for dIdx := range domains {
+			domains[dIdx].Influence[factionID] = u[fIdx][dIdx]
 		}
 	}
 
-	for factionID := range newInfluence {
+	for _, factionID := range factionIDs {
 		row := ""
-		for i := 0; i < len(domainsSlice); i++ {
-			row += fmt.Sprintf("%.3f", domainsSlice[i].Influence[factionID])
-			if i < len(domainsSlice)-1 {
+		for i := range domains {
+			row += fmt.Sprintf("%.3f", domains[i].Influence[factionID])
+			if i < len(domains)-1 {
 				row += ", "
 			}
 		}
-		log.Printf("EXPANSION_DENSITIES_NORMALIZED faction=%q tick=%d densities=[%s]", factionID, sim.State.GlobalTick, row)
+		log.Printf("EXPANSION_DENSITIES_COUPLED faction=%q tick=%d densities=[%s]",
+			factionID, sim.State.GlobalTick, row)
 	}
 }
 
@@ -196,4 +175,159 @@ func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domai
 		}
 	}
 	return u
+}
+
+func (sim *WorldSimulator) simulateCoupledKPPAndLV(
+	factionIDs []string,
+	domains []*DomainState,
+	ticks int,
+) [][]float64 {
+	nF := len(factionIDs)
+	nD := len(domains)
+	if nF == 0 || nD == 0 || ticks <= 0 {
+		return nil
+	}
+
+	neighbors := buildNeighborsFromDomains(domains)
+
+	u := make([][]float64, nF)
+	owned := make([][]bool, nF)
+	D := make([]float64, nF)
+	r := make([]float64, nF)
+	wealth := make([]float64, nF)
+
+	for fIdx, factionID := range factionIDs {
+		f := sim.State.Factions[factionID]
+		u[fIdx] = make([]float64, nD)
+		owned[fIdx] = make([]bool, nD)
+
+		D[fIdx] = minFloat(1.0, 0.002+0.01*(f.Power/100.0))
+		r[fIdx] = minFloat(0.1, 0.005+0.065*(f.Territory/5.0))
+		wealth[fIdx] = sim.factionWealthIndex(f)
+
+		for dIdx, d := range domains {
+			val := d.Influence[factionID]
+			if val <= 0 {
+				val = MinInfluence
+			}
+			u[fIdx][dIdx] = clamp(val, MinInfluence, 1.0)
+			owned[fIdx][dIdx] = (d.ControlledBy == factionID)
+		}
+	}
+
+	maxDeg := 0
+	for _, nb := range neighbors {
+		if len(nb) > maxDeg {
+			maxDeg = len(nb)
+		}
+	}
+	maxD := 0.0
+	for _, d := range D {
+		if d > maxD {
+			maxD = d
+		}
+	}
+
+	substeps := 1
+	if maxD > 0 && maxDeg > 0 {
+		substeps = int(math.Ceil(maxD * float64(maxDeg) * 2.0))
+		substeps = maxInt(1, minInt(1000, substeps))
+	}
+	dtSub := 1.0 / float64(substeps)
+
+	for h := 0; h < ticks; h++ {
+		for s := 0; s < substeps; s++ {
+			warMask := make([]bool, nD)
+			for d := range domains {
+				warMask[d] = sim.getActiveWarForDomain(domains[d].ID) != nil
+			}
+
+			u = applyKPPDiffusionStep(u, neighbors, D, dtSub)
+			u = applyLVReactionStep(u, r, dtSub, warMask)
+			u = applySourceStep(u, owned, wealth, dtSub)
+			u = applySpilloverStep(u, owned, neighbors, dtSub)
+			clampMatrixInPlace(u, MinInfluence, 1.0)
+		}
+	}
+
+	return u
+}
+
+func applySourceStep(u [][]float64, owned [][]bool, wealth []float64, dt float64) [][]float64 {
+	nF := len(u)
+	if nF == 0 {
+		return nil
+	}
+	nD := len(u[0])
+
+	next := make([][]float64, nF)
+	for f := 0; f < nF; f++ {
+		next[f] = make([]float64, nD)
+		copy(next[f], u[f])
+
+		for d := 0; d < nD; d++ {
+			if !owned[f][d] {
+				continue
+			}
+			next[f][d] += dt * sourceBaseRate * wealth[f] * maxFloat(0, sourceTargetOwned-next[f][d])
+		}
+	}
+	return next
+}
+
+func applySpilloverStep(u [][]float64, owned [][]bool, neighbors [][]int, dt float64) [][]float64 {
+	nF := len(u)
+	if nF == 0 {
+		return nil
+	}
+	nD := len(u[0])
+
+	next := make([][]float64, nF)
+	for f := 0; f < nF; f++ {
+		next[f] = make([]float64, nD)
+		copy(next[f], u[f])
+
+		for d := 0; d < nD; d++ {
+			if !owned[f][d] {
+				continue
+			}
+			overflow := dt * spillRate * maxFloat(0, next[f][d]-spillThreshold)
+			if overflow <= 0 {
+				continue
+			}
+			count := 0
+			for _, j := range neighbors[d] {
+				if !owned[f][j] {
+					count++
+				}
+			}
+			if count == 0 {
+				continue
+			}
+			share := overflow / float64(count)
+			for _, j := range neighbors[d] {
+				if !owned[f][j] {
+					next[f][j] += share
+				}
+			}
+		}
+	}
+	return next
+}
+
+func clampMatrixInPlace(u [][]float64, minV, maxV float64) {
+	for f := range u {
+		for d := range u[f] {
+			u[f][d] = clamp(u[f][d], minV, maxV)
+		}
+	}
+}
+
+func getSortedFactionKeys(factions map[string]*FactionState) []string {
+	keys := make([]string, 0, len(factions))
+	for k := range factions {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
