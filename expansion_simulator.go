@@ -29,7 +29,7 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 			if domain.ControlledBy == faction.ID {
 				domain.Influence[faction.ID] = BaseOwnDomainInfluence // 80% в своих
 			} else {
-				domain.Influence[faction.ID] = MinInfluence
+				domain.Influence[faction.ID] = 0.0
 			}
 		}
 	}
@@ -43,12 +43,17 @@ func (sim *WorldSimulator) runKPPSimulation() {
 	}
 
 	factionIDs := getSortedFactionKeys(sim.State.Factions)
-	u := sim.simulateCoupledKPPAndLV(factionIDs, domains, 1)
+	u := sim.solveExpansionEquations(factionIDs, domains, 1)
 
+	// Переносим результаты обратно в структуру доменов
 	for fIdx, factionID := range factionIDs {
 		for dIdx := range domains {
 			domains[dIdx].Influence[factionID] = u[fIdx][dIdx]
 		}
+	}
+	// Ограничиваем общее влияние на домен, чтобы не уходило за 100%
+	for _, domain := range domains {
+		capDomainInfluence(domain.Influence)
 	}
 
 	for _, factionID := range factionIDs {
@@ -177,11 +182,22 @@ func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domai
 	return u
 }
 
-func (sim *WorldSimulator) simulateCoupledKPPAndLV(
+// TODO!! Насущие проблемы:
+// 1 - Проценты влияния на домен могут уходить за 100%. Кейс с войной
+// 2 - В случае войны влияние не замораживается, а продолжает резко расти для атакующего, пробивая в итоге 100%
+// 3 - В целом после войны происходят странные вещи: скачки влияния, уход за 100%, странные колебания.
+// 4 - На unclaimed-доменах появляется влияние фракций, которые не имеют с этим доменом связей.
+func (sim *WorldSimulator) solveExpansionEquations(
 	factionIDs []string,
 	domains []*DomainState,
 	ticks int,
 ) [][]float64 {
+	factionsMap := sim.State.Factions
+	domainsMap := sim.State.Domains
+	if len(factionsMap) == 0 || len(domainsMap) == 0 {
+		return nil
+	}
+
 	nF := len(factionIDs)
 	nD := len(domains)
 	if nF == 0 || nD == 0 || ticks <= 0 {
@@ -202,7 +218,7 @@ func (sim *WorldSimulator) simulateCoupledKPPAndLV(
 		owned[fIdx] = make([]bool, nD)
 
 		D[fIdx] = minFloat(1.0, 0.002+0.01*(f.Power/100.0))
-		r[fIdx] = minFloat(0.1, 0.005+0.065*(f.Territory/5.0))
+		r[fIdx] = minFloat(0.1, 0.005+0.095*(f.Territory/5.0))
 		wealth[fIdx] = sim.factionWealthIndex(f)
 
 		for dIdx, d := range domains {
@@ -210,7 +226,7 @@ func (sim *WorldSimulator) simulateCoupledKPPAndLV(
 			if val <= 0 {
 				val = MinInfluence
 			}
-			u[fIdx][dIdx] = clamp(val, MinInfluence, 1.0)
+			u[fIdx][dIdx] = clamp(val, 0.0, 1.0)
 			owned[fIdx][dIdx] = (d.ControlledBy == factionID)
 		}
 	}
@@ -253,6 +269,7 @@ func (sim *WorldSimulator) simulateCoupledKPPAndLV(
 	return u
 }
 
+// Подпитываем влияние фракции на собственых доменах
 func applySourceStep(u [][]float64, owned [][]bool, wealth []float64, dt float64) [][]float64 {
 	nF := len(u)
 	if nF == 0 {
@@ -330,4 +347,18 @@ func getSortedFactionKeys(factions map[string]*FactionState) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func capDomainInfluence(influence map[string]float64) {
+	total := 0.0
+	for _, v := range influence {
+		total += maxFloat(0.0, v)
+	}
+	if total <= 1.0 {
+		return
+	}
+	scale := 1.0 / total
+	for factionID, value := range influence {
+		influence[factionID] = maxFloat(0.0, value) * scale
+	}
 }
