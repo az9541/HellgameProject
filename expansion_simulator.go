@@ -43,14 +43,11 @@ func (sim *WorldSimulator) runKPPSimulation() {
 	}
 
 	factionIDs := getSortedFactionKeys(sim.State.Factions)
-	u := sim.solveExpansionEquations(factionIDs, domains, 1)
-
-	// Переносим результаты обратно в структуру доменов
-	for fIdx, factionID := range factionIDs {
-		for dIdx := range domains {
-			domains[dIdx].Influence[factionID] = u[fIdx][dIdx]
-		}
+	state := sim.solveExpansionEquations(factionIDs, domains, 1)
+	if state == nil {
+		return
 	}
+	ApplyInfluenceStateToDomains(state, factionIDs, domains)
 	// Ограничиваем общее влияние на домен, чтобы не уходило за 100%
 	for _, domain := range domains {
 		capDomainInfluence(domain.Influence)
@@ -78,43 +75,44 @@ func (sim *WorldSimulator) runKPPSimulation() {
 // 5) Клампим значения и возвращаем массив u.
 func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domains []*DomainState, ticks int) []float64 {
 	n := len(domains)
-	if n == 0 || ticks <= 0 {
+	if faction == nil || n == 0 || ticks <= 0 {
 		return nil
 	}
 
 	neighbors := buildNeighborsFromDomains(domains)
-	// Карта владения доменами для текущей фракции (ключ — указатель на домен)
-	ownedMask := make(map[*DomainState]bool)
-	for _, i := range domains {
-		if i.ControlledBy == faction.ID {
-			ownedMask[i] = true
-		}
+
+	// Стабильный порядок доменов для конвертации map -> []float64 на выходе
+	domainIDs := make([]string, n)
+	for i, d := range domains {
+		domainIDs[i] = d.ID
 	}
-	// Быстрая проверка: есть ли вообще свои домены
+
+	ownedByDomain := make(map[string]bool, n)
 	hasOwned := false
 	for _, d := range domains {
-		if ownedMask[d] {
+		isOwned := d.ControlledBy == faction.ID
+		ownedByDomain[d.ID] = isOwned
+		if isOwned {
 			hasOwned = true
-			break
 		}
 	}
 
-	// Инициализируем слайс для плотностей влияния по всем доменам
-	u := make([]float64, n)
-	for i := 0; i < n; i++ {
-		u[i] = domains[i].Influence[faction.ID]
-		if u[i] <= 0 {
-			u[i] = MinInfluence
+	// Текущее влияние фракции по domainID
+	influence := make(map[string]float64, n)
+	for _, d := range domains {
+		v := d.Influence[faction.ID]
+		if v <= 0 {
+			v = MinInfluence
 		}
-		u[i] = clamp(u[i], MinInfluence, 1.0)
+		influence[d.ID] = clamp(v, MinInfluence, 1.0)
 	}
 
-	// Коэффициенты модели (D — диффузия, r — локальный рост)
+	// KPP-параметры (как было)
 	D := minFloat(1.0, 0.002+0.0015*(faction.Power/100.0))
 	r := minFloat(0.1, 0.005+0.065*(faction.Territory/5.0))
-	dt := 1.0 // одна временная единица на шаг
+	dt := 1.0
 
-	// Оценка стабильности явной схемы — число субшагов внутри часа
+	// Число субшагов для устойчивости
 	maxDeg := 0
 	for _, nb := range neighbors {
 		if len(nb) > maxDeg {
@@ -126,60 +124,85 @@ func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domai
 		substeps = int(math.Ceil(dt * D * float64(maxDeg) * 2.0))
 		substeps = maxInt(1, minInt(1000, substeps))
 	}
+	dtSub := dt / float64(substeps)
 
-	// Интегрируем ticks шагов
+	eff := func(x float64) float64 {
+		return maxFloat(0, x-DiffusionThreshold)
+	}
+
 	for h := 0; h < ticks; h++ {
-		// 1) Диффузия + реакция (KPP на графе)
-		u = SolveKPGraph(u, neighbors, D, r, dt, substeps)
-		// 2) Генератор влияния на собственных доменах
+		// 1) KPP (диффузия + реакция) на субшагах
+		for s := 0; s < substeps; s++ {
+			next := make(map[string]float64, n)
+
+			for _, domainID := range domainIDs {
+				ui := influence[domainID]
+				uiEff := eff(ui)
+
+				diff := 0.0
+				for _, neighborID := range neighbors[domainID] {
+					diff += eff(influence[neighborID]) - uiEff
+				}
+
+				diffusion := D * diff
+				reaction := r * ui * (1.0 - ui)
+				next[domainID] = ui + dtSub*(diffusion+reaction)
+			}
+
+			influence = next
+		}
+
+		// 2) Source
 		if hasOwned {
 			wealth := sim.factionWealthIndex(faction)
-			for i, d := range domains {
-				if ownedMask[d] {
-					u[i] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-u[i])
+			for _, domainID := range domainIDs {
+				if ownedByDomain[domainID] {
+					influence[domainID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-influence[domainID])
 				}
 			}
 		}
-		// 3) Spillover: избыток из своих доменов в соседние чужие
-		for i, d := range domains {
-			if !ownedMask[d] { // Чужой домен не может быть источником избыточного влияния
+
+		// 3) Spillover
+		for _, domainID := range domainIDs {
+			if !ownedByDomain[domainID] {
 				continue
 			}
-			// Коэффициент перетока начинает работать только после достижения порога spillThreshold
-			// Это значит, что если влияние u на домене i меньше порогового значения,
-			// то избыток не будет переноситься вообще
-			overflow := spillRate * maxFloat(0, u[i]-spillThreshold)
+
+			overflow := spillRate * maxFloat(0, influence[domainID]-spillThreshold)
 			if overflow <= 0 {
 				continue
 			}
+
 			count := 0
-			// Считаем количество соседних доменов, которые не принадлежат фракции (кандидаты для spillover)
-			for _, j := range neighbors[i] {
-				if !ownedMask[domains[j]] {
+			for _, neighborID := range neighbors[domainID] {
+				if !ownedByDomain[neighborID] {
 					count++
 				}
 			}
-			// Нет соседей для перетока, избыток пропадает
-			// В будущем можно подумать над тем, что с ним делать
 			if count == 0 {
 				continue
 			}
-			// Делим избыток поровну между соседними чужими доменами
-			// В будущем можно добавить более сложную логику распределения, например,
-			// с учётом текущего влияния на соседях, стабильности и других факторов
+
 			share := overflow / float64(count)
-			for _, j := range neighbors[i] {
-				if !ownedMask[domains[j]] {
-					u[j] += share
+			for _, neighborID := range neighbors[domainID] {
+				if !ownedByDomain[neighborID] {
+					influence[neighborID] += share
 				}
 			}
 		}
-		// 4) Границы значений
-		for i := 0; i < n; i++ {
-			u[i] = clamp(u[i], MinInfluence, 1.0)
+
+		// 4) Clamp
+		for _, domainID := range domainIDs {
+			influence[domainID] = clamp(influence[domainID], MinInfluence, 1.0)
 		}
 	}
-	return u
+
+	// map -> []float64 в порядке domains
+	out := make([]float64, n)
+	for i, domainID := range domainIDs {
+		out[i] = influence[domainID]
+	}
+	return out
 }
 
 // TODO!! Насущие проблемы:
@@ -191,7 +214,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 	factionIDs []string,
 	domains []*DomainState,
 	ticks int,
-) [][]float64 {
+) InfluenceState {
 	factionsMap := sim.State.Factions
 	domainsMap := sim.State.Domains
 	if len(factionsMap) == 0 || len(domainsMap) == 0 {
@@ -206,31 +229,30 @@ func (sim *WorldSimulator) solveExpansionEquations(
 
 	neighbors := buildNeighborsFromDomains(domains)
 
-	u := make([][]float64, nF)
-	owned := make([][]bool, nF)
-	D := make([]float64, nF)
-	r := make([]float64, nF)
-	wealth := make([]float64, nF)
+	// 1) Состояние влияния в формате solver-а
+	state := BuildInfluenceState(factionIDs, domains)
 
-	for fIdx, factionID := range factionIDs {
-		f := sim.State.Factions[factionID]
-		u[fIdx] = make([]float64, nD)
-		owned[fIdx] = make([]bool, nD)
+	// 2) Параметры по фракциям в map-формате
+	ownedByFactionDomain := make(map[string]map[string]bool, nF)
+	diffusionRateByFaction := make(map[string]float64, nF) // D
+	growthRateByFaction := make(map[string]float64, nF)    // r
+	wealthByFaction := make(map[string]float64, nF)
 
-		D[fIdx] = minFloat(1.0, 0.002+0.01*(f.Power/100.0))
-		r[fIdx] = minFloat(0.1, 0.005+0.095*(f.Territory/5.0))
-		wealth[fIdx] = sim.factionWealthIndex(f)
+	for _, factionID := range factionIDs {
+		faction := sim.State.Factions[factionID]
+		if faction == nil {
+			continue
+		}
 
-		for dIdx, d := range domains {
-			val := d.Influence[factionID]
-			if val <= 0 {
-				val = MinInfluence
-			}
-			u[fIdx][dIdx] = clamp(val, 0.0, 1.0)
-			owned[fIdx][dIdx] = (d.ControlledBy == factionID)
+		ownedByFactionDomain[factionID] = make(map[string]bool, nD)
+		diffusionRateByFaction[factionID] = minFloat(1.0, 0.002+0.01*(faction.Power/100.0))
+		growthRateByFaction[factionID] = minFloat(0.1, 0.005+0.095*(faction.Territory/5.0))
+		wealthByFaction[factionID] = sim.factionWealthIndex(faction)
+		for _, d := range domains {
+			ownedByFactionDomain[factionID][d.ID] = (d.ControlledBy == factionID)
 		}
 	}
-
+	// 3) Стабильность явной схемы: считаем substeps как раньше
 	maxDeg := 0
 	for _, nb := range neighbors {
 		if len(nb) > maxDeg {
@@ -238,12 +260,11 @@ func (sim *WorldSimulator) solveExpansionEquations(
 		}
 	}
 	maxD := 0.0
-	for _, d := range D {
-		if d > maxD {
-			maxD = d
+	for _, factionID := range factionIDs {
+		if diffusionRateByFaction[factionID] > maxD {
+			maxD = diffusionRateByFaction[factionID]
 		}
 	}
-
 	substeps := 1
 	if maxD > 0 && maxDeg > 0 {
 		substeps = int(math.Ceil(maxD * float64(maxDeg) * 2.0))
@@ -251,91 +272,117 @@ func (sim *WorldSimulator) solveExpansionEquations(
 	}
 	dtSub := 1.0 / float64(substeps)
 
+	// 4) Основной цикл интеграции
 	for h := 0; h < ticks; h++ {
 		for s := 0; s < substeps; s++ {
-			warMask := make([]bool, nD)
-			for d := range domains {
-				warMask[d] = sim.getActiveWarForDomain(domains[d].ID) != nil
+			warMaskByDomain := make(map[string]bool, nD)
+			for _, d := range domains {
+				warMaskByDomain[d.ID] = sim.getActiveWarForDomain(d.ID) != nil
 			}
 
-			u = applyKPPDiffusionStep(u, neighbors, D, dtSub)
-			u = applyLVReactionStep(u, r, dtSub, warMask)
-			u = applySourceStep(u, owned, wealth, dtSub)
-			u = applySpilloverStep(u, owned, neighbors, dtSub)
-			clampMatrixInPlace(u, MinInfluence, 1.0)
+			state = applyKPPDiffusionStep(
+				state,
+				factionIDs,
+				domains,
+				neighbors,
+				diffusionRateByFaction,
+				dtSub,
+				warMaskByDomain,
+			)
+
+			state = applyLVReactionStep(
+				state,
+				factionIDs,
+				domains,
+				growthRateByFaction,
+				dtSub,
+				warMaskByDomain,
+			)
+
+			state = applySourceStep(
+				state,
+				factionIDs,
+				domains,
+				ownedByFactionDomain,
+				wealthByFaction,
+				dtSub,
+			)
+
+			state = applySpilloverStep(
+				state,
+				factionIDs,
+				domains,
+				ownedByFactionDomain,
+				neighbors,
+				dtSub,
+			)
+
+			clampInfluenceInPlace(state, factionIDs, domains, MinInfluence, 1.0)
 		}
 	}
 
-	return u
+	return state
 }
 
 // Подпитываем влияние фракции на собственых доменах
-func applySourceStep(u [][]float64, owned [][]bool, wealth []float64, dt float64) [][]float64 {
-	nF := len(u)
-	if nF == 0 {
-		return nil
-	}
-	nD := len(u[0])
+func applySourceStep(state InfluenceState, factionIDs []string, domains []*DomainState,
+	factionOwnedDomains map[string]map[string]bool, wealthByFaction map[string]float64, dt float64) InfluenceState {
+	nextInfluence := state.Clone()
 
-	next := make([][]float64, nF)
-	for f := 0; f < nF; f++ {
-		next[f] = make([]float64, nD)
-		copy(next[f], u[f])
-
-		for d := 0; d < nD; d++ {
-			if !owned[f][d] {
+	for _, factionID := range factionIDs {
+		wealth := wealthByFaction[factionID]
+		for _, domain := range domains {
+			if !factionOwnedDomains[factionID][domain.ID] {
 				continue
 			}
-			next[f][d] += dt * sourceBaseRate * wealth[f] * maxFloat(0, sourceTargetOwned-next[f][d])
+			nextInfluence[factionID][domain.ID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID])
 		}
 	}
-	return next
+	return nextInfluence
 }
 
-func applySpilloverStep(u [][]float64, owned [][]bool, neighbors [][]int, dt float64) [][]float64 {
-	nF := len(u)
-	if nF == 0 {
-		return nil
-	}
-	nD := len(u[0])
+func applySpilloverStep(state InfluenceState, factionIDs []string,
+	domains []*DomainState, factionOwnedDomains map[string]map[string]bool,
+	neighbors map[string][]string, dt float64) InfluenceState {
+	nextInfluence := state.Clone()
 
-	next := make([][]float64, nF)
-	for f := 0; f < nF; f++ {
-		next[f] = make([]float64, nD)
-		copy(next[f], u[f])
-
-		for d := 0; d < nD; d++ {
-			if !owned[f][d] {
+	for _, factionID := range factionIDs {
+		for _, domain := range domains {
+			if !factionOwnedDomains[factionID][domain.ID] {
 				continue
 			}
-			overflow := dt * spillRate * maxFloat(0, next[f][d]-spillThreshold)
-			if overflow <= 0 {
+			// Считаем избыток влияния
+			overflow := spillRate * dt * maxFloat(0, nextInfluence[factionID][domain.ID]-spillThreshold)
+			if overflow <= 0 { // Если избытка влияния нет, пропускаем
 				continue
 			}
-			count := 0
-			for _, j := range neighbors[d] {
-				if !owned[f][j] {
-					count++
+
+			countDomainsToSpill := 0
+			for _, neighborID := range neighbors[domain.ID] {
+				if !factionOwnedDomains[factionID][neighborID] {
+					countDomainsToSpill++
 				}
 			}
-			if count == 0 {
+			if countDomainsToSpill == 0 { // Нет соседей для перетока
 				continue
 			}
-			share := overflow / float64(count)
-			for _, j := range neighbors[d] {
-				if !owned[f][j] {
-					next[f][j] += share
+
+			flowToNeighbors := overflow / float64(countDomainsToSpill) // Равномерно распределяем избыток между соседями
+			// Проходимся по каждому соседу домена
+			for _, neighborID := range neighbors[domain.ID] {
+				if !factionOwnedDomains[factionID][neighborID] { // Переток только в домены ДРУГИХ ФРАКЦИЙ
+					nextInfluence[factionID][neighborID] += flowToNeighbors
 				}
 			}
 		}
 	}
-	return next
+	return nextInfluence
 }
 
-func clampMatrixInPlace(u [][]float64, minV, maxV float64) {
-	for f := range u {
-		for d := range u[f] {
-			u[f][d] = clamp(u[f][d], minV, maxV)
+func clampInfluenceInPlace(state InfluenceState, factionIDs []string, domains []*DomainState, minV, maxV float64) {
+	for _, factionID := range factionIDs {
+		for _, domain := range domains {
+			state[factionID][domain.ID] = clamp(state[factionID][domain.ID], minV, maxV)
 		}
 	}
 }
@@ -361,4 +408,31 @@ func capDomainInfluence(influence map[string]float64) {
 	for factionID, value := range influence {
 		influence[factionID] = maxFloat(0.0, value) * scale
 	}
+}
+
+func buildOwnedByFactionDomain(
+	factionIDs []string,
+	domains []*DomainState,
+	factions map[string]*FactionState,
+) map[string]map[string]bool {
+	owned := make(map[string]map[string]bool, len(factionIDs))
+
+	domainInScope := make(map[string]struct{}, len(domains))
+	for _, d := range domains {
+		domainInScope[d.ID] = struct{}{}
+	}
+
+	for _, factionID := range factionIDs {
+		row := make(map[string]bool, len(domains))
+		if f := factions[factionID]; f != nil {
+			for _, domainID := range f.DomainsHeld {
+				if _, ok := domainInScope[domainID]; ok {
+					row[domainID] = true
+				}
+			}
+		}
+		owned[factionID] = row
+	}
+
+	return owned
 }
