@@ -8,24 +8,12 @@ package main
 // нам нужны их индексы в срезе.
 // Почему: SolveKPGraph работает с индексами (матрица смежности),
 // а DomainState хранит ID. Нужна конверсия.
-func buildNeighborsFromDomains(domains []*DomainState) [][]int {
+func buildNeighborsFromDomains(domains []*DomainState) map[string][]string {
 	n := len(domains)
-	neighbors := make([][]int, n)
+	neighbors := make(map[string][]string, n)
 
-	// Создаём маппинг ID → индекс
-	domainIDToIndex := make(map[string]int)
-	for i, domain := range domains {
-		domainIDToIndex[domain.ID] = i
+	for _, domain := range domains {
+		neighbors[domain.ID] = append([]string(nil), domain.AdjacentDomains...)
 	}
-
-	// Для каждого домена конвертируем AdjacentDomains (ID) в индексы
-	for i, domain := range domains {
-		for _, neighborID := range domain.AdjacentDomains {
-			if j, exists := domainIDToIndex[neighborID]; exists {
-				neighbors[i] = append(neighbors[i], j)
-			}
-		}
-	}
-
 	return neighbors
 }
