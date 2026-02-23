@@ -1,65 +1,53 @@
 package main
 
 // Если KPP - это за распространение влияния по доменам, то LV - это распространение влияние ВНУТРИ ОДНОГО домена
-// Входящие аргументы: u[f][d] - влияние фракции f в домене d
-// , r[f] - базовая скорость роста для фракции f
-// , dt - шаг времени
-// , warMask[d] - маска для доменов, находящихся в состоянии войны. Для них задаются особые правила
+// Пара примеров, как влияют параметры на рост влияния внутри домена:
+// - Если в домене ни у кого ещё нет влияния. Тогда crowding будет 0, и рост будет максимально возможным, определяемым growthRateByFaction. Это моделирует ситуацию, когда фракция начинает распространяться в новом домене без конкуренции.
+// - Если в домене уже есть влияние от других фракций, то crowding будет больше 0, и рост будет замедляться. Это моделирует конкуренцию за ресурсы внутри домена, когда фракции мешают друг другу расти.
+// - Если в домене идёт война (warMaskByDomain[domain.ID] == true), то warScale будет 0, и рост будет полностью подавлен. Это моделирует ситуацию, когда из-за войны внутри домена невозможно эффективно распространять влияние.
+// - Если в домене уже много влияния от других фракций, то competition будет высоким, и рост будет ещё больше подавляться. Это моделирует сильную конкуренцию внутри домена, когда фракции активно мешают друг другу расти.
 func applyLVReactionStep(
-	u [][]float64,
-	r []float64,
-	dt float64,
-	warMask []bool,
-) [][]float64 {
+	state InfluenceState, factionIDs []string, domains []*DomainState,
+	growthRateByFaction map[string]float64, dt float64,
+	warMaskByDomain map[string]bool) InfluenceState {
 
-	nF := len(u) // Количество фракций в игре
-	if nF == 0 {
-		return nil
-	}
+	nextInfluence := state.Clone() // Копируем текущее состояние, чтобы записывать в него результаты
 
-	nD := len(u[0]) // Количество доменов в игре
-	next := make([][]float64, nF)
-	for f := 0; f < nF; f++ {
-		next[f] = make([]float64, nD)
-		copy(next[f], u[f])
-	}
-
-	// Все константы взяты эмпирически. Менять lvCapacity и Crowding лучше не надо. lvCompetitionAlpha можно.
 	const (
-		lvCapacityK        = 1.0  // Максимальное влияние, которое может быть достигнуто в одном домене (аналог ёмкости в модели Лотки-Вольтерры)
-		lvCompetitionAlpha = 0.05 // Сила конкуренции между фракциями внутри домена. Чем выше, тем сильнее влияние одной фракции подавляет рост другой
-		lvCrowdingWeight   = 0.8  // Вес вклада фракции в заполненность домена
-		lvWarSuppression   = 0.0  // Насколько гасится уравнение в доменах с активной войной
+		lvCapacityK        = 1.0
+		lvCompetitionAlpha = 0.05
+		lvCrowdingWeight   = 0.8
+		lvWarSuppression   = 0.0
 	)
 
-	for d := 0; d < nD; d++ { // Работаем с каждым доменом. В каждом регионе фракции конкурируют между собой.
-		totalCrowding := 0.0
-		for g := 0; g < nF; g++ {
-			// Считаем общую заполненность домена. g - индекс фракции, d - индекс домена
-			totalCrowding += lvCrowdingWeight * u[g][d]
-		}
-
-		// По умолчанию warScale никак не влияет на уравнение. В противном случае - обнуляет.
+	// Цикл по всем доменам. Внутри каждого домена рассчитываем рост влияния каждой фракции с учётом конкуренции, заполненности и войны.
+	for _, domain := range domains {
 		warScale := 1.0
-		if warMask[d] {
-			warScale = lvWarSuppression
+		if warMaskByDomain[domain.ID] {
+			warScale = lvWarSuppression // Война подавляет рост внутри домена
 		}
 
-		for f := 0; f < nF; f++ {
-			competition := 0.0 // Сумма подавления на текущую фракцию от других
-			for g := 0; g < nF; g++ {
-				if g == f {
+		totalCrowding := 0.0 // Суммарная заполненность домена влиянием всех фракций, влияет на снижение роста
+		for _, factionID := range factionIDs {
+			totalCrowding += lvCrowdingWeight * state[factionID][domain.ID] // Чем больше всего влияния в домене, тем меньше рост для всех (конкуренция за ресурсы)
+		}
+
+		// Считаем рост для каждой фракции в домене с учётом конкуренции от других фракций.
+		for _, factionID := range factionIDs {
+			competition := 0.0
+			for _, otherFactionID := range factionIDs {
+				if otherFactionID == factionID {
 					continue
 				}
-				// Для примера: если lvCompetitionAlpha = 0.5
-				// , а у фракции g влияние 0.6, то она будет подавлять рост фракции f на 0.3 (0.5*0.6)
-				competition += lvCompetitionAlpha * u[g][d]
+				competition += lvCompetitionAlpha * state[otherFactionID][domain.ID] // Конкуренция от других фракций, снижает рост
 			}
-			competition *= warScale
-			crowding := 1.0 - totalCrowding/lvCapacityK         // Чем выше заполненность, тем меньше рост. При достижении полной заполненности рост останавливается
-			reaction := u[f][d] * (r[f]*crowding - competition) // Классическое уравнение Лотки-Вольтерры с учётом заполненности и конкуренции
-			next[f][d] = u[f][d] + dt*reaction                  // Заполняем новую матрицу влияния после шага реакции
+			competition *= warScale // Война усиливает конкуренцию, подавляя рост
+
+			influence := state[factionID][domain.ID]
+			crowding := 1.0 - totalCrowding/lvCapacityK                                                // Чем больше всего влияния, тем меньше рост (логистический рост)
+			influenceGrowthRate := influence * (growthRateByFaction[factionID]*crowding - competition) // Рост с учётом конкуренции и заполненности
+			nextInfluence[factionID][domain.ID] = influence + dt*influenceGrowthRate                   // Обновляем влияние с учётом роста
 		}
 	}
-	return next
+	return nextInfluence
 }
