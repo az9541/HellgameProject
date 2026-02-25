@@ -34,7 +34,7 @@ const (
 
 	// Numerical constants
 	InfluenceToTakeOver              = 0.15 // Порог влияния фракции для попытки захвата домена
-	MinInfluence                     = 0.005
+	MinInfluence                     = 0.0
 	MinAwareness                     = 0.2
 	InfluenceToAwarenessFactor       = 0.8
 	TEMPDomainAttractivnessThreshold = 0.4
