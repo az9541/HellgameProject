@@ -245,7 +245,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 		}
 
 		ownedByFactionDomain[factionID] = make(map[string]bool, nD)
-		diffusionRateByFaction[factionID] = minFloat(1.0, 0.002+0.01*(faction.Power/100.0))
+		diffusionRateByFaction[factionID] = minFloat(1.0, 0.002+0.005*(faction.Power/100.0))
 		growthRateByFaction[factionID] = minFloat(0.1, 0.005+0.095*(faction.Territory/5.0))
 		wealthByFaction[factionID] = sim.factionWealthIndex(faction)
 		for _, d := range domains {
@@ -259,19 +259,22 @@ func (sim *WorldSimulator) solveExpansionEquations(
 			maxDeg = len(nb)
 		}
 	}
-	maxD := 0.0
+	maxD := 0.0 // Максимальная D среди фракций, влияет на число субшагов для устойчивости
 	for _, factionID := range factionIDs {
 		if diffusionRateByFaction[factionID] > maxD {
 			maxD = diffusionRateByFaction[factionID]
 		}
 	}
 	substeps := 1
-	if maxD > 0 && maxDeg > 0 {
+	if maxD > 0 && maxDeg > 0 { // Если есть диффузия и есть связи между доменами, то нужно разбивать на субшаги для устойчивости
+		// Простыми словами, устойчивость это когда влияние не начинает "скакать" и уходить за 100% из-за слишком большого шага.
+		// Чем больше D и чем больше соседей, тем быстрее может расти влияние, и тем меньше должен быть шаг для устойчивости.
 		substeps = int(math.Ceil(maxD * float64(maxDeg) * 2.0))
 		substeps = maxInt(1, minInt(1000, substeps))
 	}
 	dtSub := 1.0 / float64(substeps)
 
+	factionsSnapshot := makeFactionStatesSnapshot(factionsMap)
 	// 4) Основной цикл интеграции
 	for h := 0; h < ticks; h++ {
 		for s := 0; s < substeps; s++ {
@@ -306,18 +309,20 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				ownedByFactionDomain,
 				wealthByFaction,
 				dtSub,
+				warMaskByDomain,
 			)
 
 			state = applySpilloverStep(
 				state,
-				factionIDs,
+				factionsSnapshot,
 				domains,
 				ownedByFactionDomain,
 				neighbors,
 				dtSub,
+				warMaskByDomain,
 			)
 
-			clampInfluenceInPlace(state, factionIDs, domains, MinInfluence, 1.0)
+			clampInfluenceInPlace(state, factionIDs, domains, 0.0, 1.0)
 		}
 	}
 
@@ -326,7 +331,9 @@ func (sim *WorldSimulator) solveExpansionEquations(
 
 // Подпитываем влияние фракции на собственых доменах
 func applySourceStep(state InfluenceState, factionIDs []string, domains []*DomainState,
-	factionOwnedDomains map[string]map[string]bool, wealthByFaction map[string]float64, dt float64) InfluenceState {
+	factionOwnedDomains map[string]map[string]bool, wealthByFaction map[string]float64,
+	dt float64, warMaskByDomain map[string]bool) InfluenceState {
+	const warSuppressionForSource = 0.2 // Война сильно подавляет генерацию влияния в своих доменах
 	nextInfluence := state.Clone()
 
 	for _, factionID := range factionIDs {
@@ -335,44 +342,94 @@ func applySourceStep(state InfluenceState, factionIDs []string, domains []*Domai
 			if !factionOwnedDomains[factionID][domain.ID] {
 				continue
 			}
-			nextInfluence[factionID][domain.ID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID])
+			if warMaskByDomain[domain.ID] {
+				nextInfluence[factionID][domain.ID] += dt * sourceBaseRate *
+					wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID]) * warSuppressionForSource // Война подавляет генерацию влияния в своих доменах
+			} else {
+				nextInfluence[factionID][domain.ID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID])
+			}
 		}
 	}
 	return nextInfluence
 }
 
-func applySpilloverStep(state InfluenceState, factionIDs []string,
+func applySpilloverStep(state InfluenceState, factionStates map[string]FactionState,
 	domains []*DomainState, factionOwnedDomains map[string]map[string]bool,
-	neighbors map[string][]string, dt float64) InfluenceState {
+	neighbors map[string][]string, dt float64, warMaskByDomain map[string]bool) InfluenceState {
+	type spillCandidate struct {
+		domainID       string
+		attractiveness float64
+	}
 	nextInfluence := state.Clone()
 
-	for _, factionID := range factionIDs {
-		for _, domain := range domains {
-			if !factionOwnedDomains[factionID][domain.ID] {
+	domainByID := make(map[string]*DomainState, len(domains))
+	for _, d := range domains {
+		domainByID[d.ID] = d
+	}
+	for factionID, factionState := range factionStates {
+		for _, sourceDomain := range domains {
+			sourceID := sourceDomain.ID
+			if warMaskByDomain[sourceID] {
 				continue
 			}
-			// Считаем избыток влияния
-			overflow := spillRate * dt * maxFloat(0, nextInfluence[factionID][domain.ID]-spillThreshold)
-			if overflow <= 0 { // Если избытка влияния нет, пропускаем
-				continue
-			}
-
-			countDomainsToSpill := 0
-			for _, neighborID := range neighbors[domain.ID] {
-				if !factionOwnedDomains[factionID][neighborID] {
-					countDomainsToSpill++
-				}
-			}
-			if countDomainsToSpill == 0 { // Нет соседей для перетока
+			if !factionOwnedDomains[factionID][sourceID] {
 				continue
 			}
 
-			flowToNeighbors := overflow / float64(countDomainsToSpill) // Равномерно распределяем избыток между соседями
-			// Проходимся по каждому соседу домена
-			for _, neighborID := range neighbors[domain.ID] {
-				if !factionOwnedDomains[factionID][neighborID] { // Переток только в домены ДРУГИХ ФРАКЦИЙ
-					nextInfluence[factionID][neighborID] += flowToNeighbors
+			sourceValue := state[factionID][sourceID]
+			overflow := spillRate * dt * maxFloat(0, sourceValue-spillThreshold)
+			if overflow <= 0 {
+				continue
+			}
+
+			candidates := make([]spillCandidate, 0, len(neighbors[sourceID]))
+			totalAttractiveness := 0.0
+
+			for _, neighborID := range neighbors[sourceID] {
+				if factionOwnedDomains[factionID][neighborID] {
+					continue
 				}
+				if warMaskByDomain[neighborID] {
+					continue
+				}
+
+				neighborDomain, ok := domainByID[neighborID]
+				if !ok {
+					continue
+				}
+
+				neighborInfluence := state[factionID][neighborID]
+				attractiveness := maxFloat(0.0, calcDomainAttractiveness(
+					factionState.Resources,
+					neighborDomain,
+					neighborInfluence,
+					0,
+				))
+
+				candidates = append(candidates, spillCandidate{
+					domainID:       neighborID,
+					attractiveness: attractiveness,
+				})
+				totalAttractiveness += attractiveness
+			}
+
+			if len(candidates) == 0 {
+				continue
+			}
+
+			// Убираем влияние из источника
+			nextInfluence[factionID][sourceID] -= overflow
+			if totalAttractiveness <= 0 {
+				share := overflow / float64(len(candidates))
+				for _, candidate := range candidates {
+					nextInfluence[factionID][candidate.domainID] += share
+				}
+				continue
+			}
+
+			for _, candidate := range candidates {
+				share := overflow * (candidate.attractiveness / totalAttractiveness)
+				nextInfluence[factionID][candidate.domainID] += share
 			}
 		}
 	}
