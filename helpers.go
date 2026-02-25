@@ -73,3 +73,41 @@ func estimateForceWithAwareness(force, awareness float64) float64 {
 	noise := (rand.Float64()*2 - 1) * maxNoise * (1 - awareness)
 	return force * (1 + noise)
 }
+
+// Clone делает глубокую копию FactionState.
+func (f *FactionState) Clone() *FactionState {
+	if f == nil {
+		return nil
+	}
+
+	domainsCopy := append([]string(nil), f.DomainsHeld...)
+
+	attitudeCopy := make(map[string]float64, len(f.Attitude))
+	for k, v := range f.Attitude {
+		attitudeCopy[k] = v
+	}
+
+	return &FactionState{
+		ID:             f.ID,
+		Name:           f.Name,
+		Power:          f.Power,
+		Territory:      f.Territory,
+		DomainsHeld:    domainsCopy,
+		Attitude:       attitudeCopy,
+		Resources:      f.Resources,
+		MilitaryForce:  f.MilitaryForce,
+		LastActionTime: f.LastActionTime,
+	}
+}
+
+// Снимок "живых" фракций в value-map (без указателей).
+func makeFactionStatesSnapshot(factions map[string]*FactionState) map[string]FactionState {
+	snapshot := make(map[string]FactionState, len(factions))
+	for _, faction := range factions {
+		if faction == nil {
+			continue
+		}
+		snapshot[faction.ID] = *faction.Clone()
+	}
+	return snapshot
+}
