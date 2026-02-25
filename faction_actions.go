@@ -31,7 +31,7 @@ func (sim *WorldSimulator) executeFactionActions() {
 				sim.attemptDomainTakeover(faction, dom, dom.Influence[faction.ID])
 				continue
 			}
-			attractiveness := faction.calcDomainAttractiveness(dom, dom.Influence[faction.ID], len(activeWars))
+			attractiveness := calcDomainAttractiveness(faction.Resources, dom, dom.Influence[faction.ID], len(activeWars))
 			if attractiveness <= TEMPDomainAttractivnessThreshold {
 				gameEventBuillder := NewBuilderGenericEvent()
 				gameEventBuillder.SetType("WAR_AVOIDED").SetTick(sim.State.GlobalTick).SetData(GenericEventData{
@@ -350,12 +350,12 @@ func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimul
 	return isReachable, footholds
 }
 
-func (faction *FactionState) calcDomainAttractiveness(domain *DomainState, influence float64, activeWars int) float64 {
+func calcDomainAttractiveness(factionRes float64, domain *DomainState, influence float64, activeWars int) float64 {
 	popFactor := clamp(float64(domain.Population)/10000.0, 0.1, 1)
 	stabFactor := clamp(domain.Stability/100.0, 0.1, 1)
 	inflFactor := clamp(influence, 0, 1) * 4.0
 	dangerFactor := 1.3 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
-	resFactor := 1.0 + clamp(domain.Resources/(faction.Resources+1.0), 0, 1.5)
+	resFactor := 1.0 + clamp(domain.Resources/(factionRes+1.0), 0, 1.5)
 	warPenalty := 1.0 - clamp(float64(activeWars)*0.2, 0, 0.8)
 	//controlledFactionWeakness := clamp(((100-faction.MilitaryForce)/faction.Power)*3, 0.2, 3.0)
 	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty * resFactor
