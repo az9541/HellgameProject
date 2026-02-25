@@ -414,17 +414,35 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId *FactionSt
 	for factionID := range domain.Influence {
 		switch factionID {
 		case winnerId.ID:
-			domain.Influence[factionID] = 0.9
+			// TODO! Сделать более комплексную функцию расчёта влияния после войны
+			//, которая будет учитывать не только победу/поражение, но и потери, мораль, длительность войны и т.д.
+			// Считаем коэффициенты влияния на основе результата войны
+			if winnerId.ID == war.AttackerID {
+				lossesRatio := 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
+				moraleRatio := war.AttackerMorale / 100.0
+				momentumRatio := war.Momentum / 200.0 // Нормируем на 200, т.к. это примерно максимальное значение момента
+				victoryScore := 0.5*lossesRatio + 0.3*moraleRatio + 0.2*momentumRatio
+				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*0.5, 0, 1)
+			} else {
+				lossesRatio := 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
+				moraleRatio := war.DefenderMorale / 100.0
+				momentumRatio := war.Momentum / 200.0
+				victoryScore := 0.5*lossesRatio + 0.3*moraleRatio + 0.2*momentumRatio
+				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*0.5, 0, 1)
+			}
+			//domain.Influence[factionID] = 0.9
 		case loserId.ID:
 			domain.Influence[factionID] = clamp((domain.Influence[factionID]-0.2)*0.5, 0, 1)
 		default:
 			// Сторонние фракции получают небольшой прирост влияния
-			domain.Influence[factionID] = clamp(domain.Influence[factionID]+0.05, 0, 1)
+			domain.Influence[factionID] = domain.Influence[factionID]
 		}
 	}
+	capDomainInfluence(domain.Influence)
 	war.IsOver = true
 	war.WinnersID = map[string]string{winnerId.ID: "victory"}
 	war.LosersID = map[string]string{loserId.ID: "defeat"}
+
 	sim.syncFactionDomains()
 }
 
