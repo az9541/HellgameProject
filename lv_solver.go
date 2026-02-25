@@ -17,7 +17,7 @@ func applyLVReactionStep(
 		lvCapacityK        = 1.0
 		lvCompetitionAlpha = 0.05
 		lvCrowdingWeight   = 0.8
-		lvWarSuppression   = 0.0
+		lvWarSuppression   = 0.05 // Война сильно подавляет рост внутри домена
 	)
 
 	// Цикл по всем доменам. Внутри каждого домена рассчитываем рост влияния каждой фракции с учётом конкуренции, заполненности и войны.
@@ -44,9 +44,9 @@ func applyLVReactionStep(
 			competition *= warScale // Война усиливает конкуренцию, подавляя рост
 
 			influence := state[factionID][domain.ID]
-			crowding := 1.0 - totalCrowding/lvCapacityK                                                // Чем больше всего влияния, тем меньше рост (логистический рост)
-			influenceGrowthRate := influence * (growthRateByFaction[factionID]*crowding - competition) // Рост с учётом конкуренции и заполненности
-			nextInfluence[factionID][domain.ID] = influence + dt*influenceGrowthRate                   // Обновляем влияние с учётом роста
+			crowding := 1.0 - totalCrowding/lvCapacityK                                                                   // Чем больше всего влияния, тем меньше рост (логистический рост)
+			influenceGrowthRate := influence * growthRateByFaction[factionID] * crowding * (1.0 - competition) * warScale // Рост с учётом всех факторов
+			nextInfluence[factionID][domain.ID] = influence + dt*influenceGrowthRate                                      // Обновляем влияние с учётом роста
 		}
 	}
 	return nextInfluence
