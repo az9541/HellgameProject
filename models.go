@@ -54,12 +54,3 @@ const (
 	AttackerRetreatThreshold   = 15.0
 	MoraleChangeFactor         = 0.5
 )
-
-type WarOutcome int
-
-const (
-	WarOutcomeContinues WarOutcome = iota
-	WarOutcomeDefenderSurrenders
-	WarOutcomeAttackerRetreats
-	WarOutcomeDefenderRetreats
-)
