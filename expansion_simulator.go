@@ -245,8 +245,9 @@ func (sim *WorldSimulator) solveExpansionEquations(
 		}
 
 		ownedByFactionDomain[factionID] = make(map[string]bool, nD)
-		diffusionRateByFaction[factionID] = minFloat(1.0, 0.002+0.005*(faction.Power/100.0))
-		growthRateByFaction[factionID] = minFloat(0.1, 0.005+0.095*(faction.Territory/5.0))
+		kppParams := NewKPPParameters(faction)
+		diffusionRateByFaction[factionID] = kppParams.Diffusion
+		growthRateByFaction[factionID] = kppParams.Growth
 		wealthByFaction[factionID] = sim.factionWealthIndex(faction)
 		for _, d := range domains {
 			ownedByFactionDomain[factionID][d.ID] = (d.ControlledBy == factionID)
