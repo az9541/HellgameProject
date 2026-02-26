@@ -52,7 +52,7 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 	}
 
 	// Считаем, сколько атакующий ХОЧЕТ выделить
-	attackerWantedMilitaryPower := estimateDefenderStrength + 10 // Ожидаемая сила защитника + небольшой запас для уверенности
+	attackerWantedMilitaryPower := estimateDefenderStrength + WarAttackerForceBuffer // Ожидаемая сила защитника + небольшой запас для уверенности
 
 	// Считаем, сколько атакующий МОЖЕТ выделить
 	attackerCommitted := clamp(attackerWantedMilitaryPower*sim.factionWealthIndex(attacker), 0, attacker.MilitaryForce)
@@ -228,173 +228,26 @@ func (sim *WorldSimulator) UpdateWars() {
 		}
 
 		// ============ ЗАКОН ЛАНЧЕСТЕРА-ОСИПОВА (квадратичный) с затуханием ============
-		attackerLosses, defenderLosses, lanchesterInvariant := sim.computeBattleCoefficients(attacker, defender, domain, war)
 
-		// Применяем потери к контингентам
-		war.AttackerCurrentForce = math.Max(0, war.AttackerCurrentForce-attackerLosses)
-		war.DefenderCurrentForce = math.Max(0, war.DefenderCurrentForce-defenderLosses)
+		attackerLossPercent, defenderLossPercent, lossRatio := sim.applyBattleTick(war, attacker, defender, domain)
 
-		// Расход ресурсов (пропорционален интенсивности боя)
-		const resourceCostFactor = 0.03
-		attackerResourceCost := resourceCostFactor * (1.0 + attackerLosses*0.5)
-		defenderResourceCost := resourceCostFactor * (1.0 + defenderLosses*0.5) * 0.8
-
-		attacker.Resources = clamp(attacker.Resources-attackerResourceCost, 0, 100)
-		defender.Resources = clamp(defender.Resources-defenderResourceCost, 0, 100)
-
-		momentumChange := lanchesterInvariant * 0.0005
-		war.Momentum += momentumChange
-		war.TicksDuration++
-		war.LastUpdateTick = sim.State.GlobalTick
-
-		// ============ РАСЧЁТ ПОТЕРЬ И МОРАЛИ ============
-
-		// Процент потерь от начального контингента
-		attackerLossPercent := 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
-		defenderLossPercent := 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
-
-		// Текущее соотношение сил
+		// ============ Обновляем мораль ============
 		currentForceRatio := 0.0
 		if war.DefenderCurrentForce > 0 {
 			currentForceRatio = war.AttackerCurrentForce / war.DefenderCurrentForce
 		}
 
-		// Изменение морали на основе потерь за этот тик
-		lossRatio := 0.0
-		if attackerLosses+defenderLosses > 0 {
-			lossRatio = (defenderLosses - attackerLosses) / (attackerLosses + defenderLosses)
-		}
-
-		moraleRandomFactor := 0.95 + rand.Float64()*0.1
-
-		// Базовое изменение морали
-		baseMoraleChange := math.Abs(lossRatio) * 3.0 * moraleRandomFactor
-
-		if lossRatio > 0 {
-			// Защитник несёт больше потерь → мораль атакующего растёт, защитника падает
-			war.AttackerMorale = clamp(war.AttackerMorale+baseMoraleChange, 0, 100)
-			war.DefenderMorale = clamp(war.DefenderMorale-baseMoraleChange*1.3, 0, 100)
-		} else {
-			// Атакующий несёт больше потерь
-			war.DefenderMorale = clamp(war.DefenderMorale+baseMoraleChange, 0, 100)
-			war.AttackerMorale = clamp(war.AttackerMorale-baseMoraleChange*1.3, 0, 100)
-		}
+		updateMorale(war, lossRatio)
 
 		// ============ УСЛОВИЯ ОТСТУПЛЕНИЯ И СДАЧИ ============
 
-		const (
-			retreatLossThreshold   = 0.50 // Отступление при 50% потерь контингента
-			surrenderLossThreshold = 0.70 // Сдача при 70% потерь
-			criticalForceRatio     = 0.33 // Критическое соотношение сил 1:3
-		)
-
-		// Проверка условий для защитника
-		defenderShouldSurrender := defenderLossPercent >= surrenderLossThreshold ||
-			war.DefenderMorale <= 10 ||
-			war.DefenderCurrentForce <= 0 ||
-			defender.Resources <= 5
-
-		defenderShouldRetreat := defenderLossPercent >= retreatLossThreshold ||
-			war.DefenderMorale <= 25 ||
-			(currentForceRatio > 1.0/criticalForceRatio) // атакующий превосходит в 3+ раза
-
-		// Проверка условий для атакующего
-		attackerShouldRetreat := attackerLossPercent >= retreatLossThreshold ||
-			war.AttackerMorale <= 20 ||
-			war.AttackerCurrentForce <= 0 ||
-			attacker.Resources <= 5 ||
-			(currentForceRatio < criticalForceRatio) // защитник превосходит в 3+ раза
+		warOutcome := evaluateWarOutcome(attacker, defender, war, attackerLossPercent, defenderLossPercent, currentForceRatio)
 
 		// Обработка окончания войны
-		if defenderShouldSurrender {
-			war.IsOver = true
-			war.WinnersID = map[string]string{attacker.ID: "defender_surrendered"}
-			war.LosersID = map[string]string{defender.ID: "surrendered"}
-			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
-				Attacker:            attacker.ID,
-				Defender:            defender.ID,
-				Domain:              domain.ID,
-				Reason:              "defender_surrendered",
-				WinnerID:            attacker.ID,
-				LoserID:             defender.ID,
-				AttackerLossesPct:   attackerLossPercent * 100,
-				DefenderLossesPct:   defenderLossPercent * 100,
-				AttackerMorale:      war.AttackerMorale,
-				DefenderMorale:      war.DefenderMorale,
-				AttackerForceRemain: war.AttackerCurrentForce,
-				DefenderForceRemain: war.DefenderCurrentForce,
-			})
-			sim.emitEventLocked(gameEventBuilder.Build())
-			sim.FinishWar(war, attacker, defender, domain)
-			continue
-		}
-
-		if attackerShouldRetreat {
-			war.IsOver = true
-			war.WinnersID = map[string]string{defender.ID: "attacker_retreated"}
-			war.LosersID = map[string]string{attacker.ID: "retreated"}
-			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
-				Attacker:            attacker.ID,
-				Defender:            defender.ID,
-				Domain:              domain.ID,
-				Reason:              "attacker_retreated",
-				WinnerID:            defender.ID,
-				LoserID:             attacker.ID,
-				AttackerLossesPct:   attackerLossPercent * 100,
-				DefenderLossesPct:   defenderLossPercent * 100,
-				AttackerMorale:      war.AttackerMorale,
-				DefenderMorale:      war.DefenderMorale,
-				AttackerForceRemain: war.AttackerCurrentForce,
-				DefenderForceRemain: war.DefenderCurrentForce,
-			})
-			sim.emitEventLocked(gameEventBuilder.Build())
-			sim.FinishWar(war, defender, attacker, domain)
-			continue
-		}
-
-		if defenderShouldRetreat && !defenderShouldSurrender {
-			// Защитник может отступить, сохранив часть войск, но теряет домен
-			war.IsOver = true
-			war.WinnersID = map[string]string{attacker.ID: "defender_retreated"}
-			war.LosersID = map[string]string{defender.ID: "strategic_retreat"}
-			gameEventBuilder := NewBuilderWarEvent()
-			gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
-				Attacker:            attacker.ID,
-				Defender:            defender.ID,
-				Domain:              domain.ID,
-				Reason:              "defender_strategic_retreat",
-				WinnerID:            attacker.ID,
-				LoserID:             defender.ID,
-				AttackerLossesPct:   attackerLossPercent * 100,
-				DefenderLossesPct:   defenderLossPercent * 100,
-				AttackerMorale:      war.AttackerMorale,
-				DefenderMorale:      war.DefenderMorale,
-				AttackerForceRemain: war.AttackerCurrentForce,
-				DefenderForceRemain: war.DefenderCurrentForce,
-			})
-			sim.emitEventLocked(gameEventBuilder.Build())
-			sim.FinishWar(war, attacker, defender, domain)
-			continue
-		}
+		sim.resolveWarOutcome(war, attacker, defender, domain, warOutcome, attackerLossPercent, defenderLossPercent, currentForceRatio)
 
 		// Лог текущего состояния войны
-		warLogBuilder := NewBuilderWarEvent()
-		warLogBuilder.SetType("WAR_UPDATE").SetTick(sim.State.GlobalTick).SetData(WarUpdateData{
-			Attacker:          attacker.ID,
-			Defender:          defender.ID,
-			Domain:            domain.ID,
-			Momentum:          war.Momentum,
-			AttackerMorale:    war.AttackerMorale,
-			DefenderMorale:    war.DefenderMorale,
-			AttackerForce:     war.AttackerCurrentForce,
-			DefenderForce:     war.DefenderCurrentForce,
-			AttackerLossesPct: attackerLossPercent * 100,
-			DefenderLossesPct: defenderLossPercent * 100,
-			ForceRatio:        currentForceRatio,
-		})
-		sim.emitEventLocked(warLogBuilder.Build())
+
 	}
 }
 
@@ -417,32 +270,26 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId *FactionSt
 			// TODO! Сделать более комплексную функцию расчёта влияния после войны
 			//, которая будет учитывать не только победу/поражение, но и потери, мораль, длительность войны и т.д.
 			// Считаем коэффициенты влияния на основе результата войны
+			momentumRatio := war.Momentum / WarMomentumNormFactor
 			if winnerId.ID == war.AttackerID {
 				lossesRatio := 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
 				moraleRatio := war.AttackerMorale / 100.0
-				momentumRatio := war.Momentum / 200.0 // Нормируем на 200, т.к. это примерно максимальное значение момента
-				victoryScore := 0.5*lossesRatio + 0.3*moraleRatio + 0.2*momentumRatio
-				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*0.5, 0, 1)
+				victoryScore := WarVictoryScoreWeightLosses*lossesRatio + WarVictoryScoreWeightMorale*moraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
+				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*WarWinnerInfluenceGain, 0, 1)
 			} else {
 				lossesRatio := 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
 				moraleRatio := war.DefenderMorale / 100.0
-				momentumRatio := war.Momentum / 200.0
-				victoryScore := 0.5*lossesRatio + 0.3*moraleRatio + 0.2*momentumRatio
-				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*0.5, 0, 1)
+				victoryScore := WarVictoryScoreWeightLosses*lossesRatio + WarVictoryScoreWeightMorale*moraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
+				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*WarWinnerInfluenceGain, 0, 1)
 			}
 			//domain.Influence[factionID] = 0.9
 		case loserId.ID:
-			domain.Influence[factionID] = clamp((domain.Influence[factionID]-0.2)*0.5, 0, 1)
+			domain.Influence[factionID] = clamp((domain.Influence[factionID]-WarLoserInfluenceDrop)*WarLoserInfluenceDecay, 0, 1)
 		default:
-			// Сторонние фракции получают небольшой прирост влияния
 			domain.Influence[factionID] = domain.Influence[factionID]
 		}
 	}
 	capDomainInfluence(domain.Influence)
-	war.IsOver = true
-	war.WinnersID = map[string]string{winnerId.ID: "victory"}
-	war.LosersID = map[string]string{loserId.ID: "defeat"}
-
 	sim.syncFactionDomains()
 }
 
@@ -512,18 +359,18 @@ func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, def
 	// Функция морали: влияет на эффективность бойцов
 	moraleFactor := func(morale float64) float64 {
 		// Нелинейная зависимость: при морали 100 -> 1.0, при 50 -> 0.7, при 0 -> 0.3
-		return 0.3 + 0.7*(morale/100.0)
+		return WarMoraleBaseFloor + WarMoraleBaseCeiling*(morale/100.0)
 	}
 
 	// Функция истощения: чем меньше осталось войск от начального, тем менее эффективны
 	// Это создаёт нелинейность: истощённые армии наносят меньше урона
 	exhaustionFactor := func(current, initial float64) float64 {
 		if initial <= 0 {
-			return 0.3
+			return WarExhaustionFloor
 		}
 		ratio := current / initial
 		// При 100% сил -> 1.0, при 50% -> 0.75, при 25% -> 0.5
-		return 0.3 + 0.7*math.Sqrt(ratio)
+		return WarExhaustionFloor + WarExhaustionCeiling*math.Sqrt(ratio)
 	}
 
 	// Штраф за многофронтовую войну
@@ -533,33 +380,33 @@ func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, def
 		if warsCount <= 1 {
 			return 1.0
 		}
-		return 1.0 / (1.0 + float64(warsCount-1)*0.25) // -25% за каждую дополнительную войну
+		return 1.0 / (1.0 + float64(warsCount-1)*WarMultiFrontPenalty) // -25% за каждую дополнительную войну
 	}
 
 	// Штраф за опасность домена
-	dangerModifier := 1.0 - float64(domain.DangerLevel)/200.0
+	dangerModifier := 1.0 - float64(domain.DangerLevel)/WarDangerLevelNorm
 
 	// Бонус за влияние на территории
-	influenceBonus := 1.0 + influenceRatio*0.2
+	influenceBonus := 1.0 + influenceRatio*WarInfluenceBonusFactor
 
 	// Коэффициенты эффективности (alpha для атакующего, beta для защитника)
-	alphaBase := 0.008 * (1.0 + frozenAttackerDensity) *
+	alphaBase := WarLanchesterBaseCoeff * (1.0 + frozenAttackerDensity) *
 		moraleFactor(war.AttackerMorale) *
 		exhaustionFactor(war.AttackerCurrentForce, war.AttackerCommittedForce) *
 		multiFrontPenalty(attackerWars) *
 		dangerModifier *
 		influenceBonus
 
-	betaBase := 0.008 * (1.0 + frozenDefenderDensity) *
+	betaBase := WarLanchesterBaseCoeff * (1.0 + frozenDefenderDensity) *
 		moraleFactor(war.DefenderMorale) *
 		exhaustionFactor(war.DefenderCurrentForce, war.DefenderCommittedForce) *
 		multiFrontPenalty(defenderWars) *
 		dangerModifier *
-		1.15 * influenceBonus // защитник +15% за оборону
+		WarDefenderHomeBonus * influenceBonus // защитник +15% за оборону
 
 	// Стохастический элемент (±10%)
-	alphaRandom := alphaBase * (0.9 + rand.Float64()*0.2)
-	betaRandom := betaBase * (0.9 + rand.Float64()*0.2)
+	alphaRandom := alphaBase * (WarLanchesterRandomMin + rand.Float64()*WarLanchesterRandomRange)
+	betaRandom := betaBase * (WarLanchesterRandomMin + rand.Float64()*WarLanchesterRandomRange)
 
 	// Потери по квадратичному закону Ланчестера
 	// dA/dt = -beta * B, dB/dt = -alpha * A
@@ -568,4 +415,176 @@ func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, def
 	lanchesterInvariant = alphaRandom*effectiveAttackerForce*effectiveAttackerForce -
 		betaRandom*effectiveDefenderForce*effectiveDefenderForce
 	return alpha, beta, lanchesterInvariant
+}
+
+func (sim *WorldSimulator) applyBattleTick(war *WarState, attacker, defender *FactionState, domain *DomainState) (attLossPercent, defLossPercent, lossRatio float64) {
+	attackerLosses, defenderLosses, lanchesterInvariant := sim.computeBattleCoefficients(attacker, defender, domain, war)
+
+	// Применяем потери к контингентам
+	war.AttackerCurrentForce = math.Max(0, war.AttackerCurrentForce-attackerLosses)
+	war.DefenderCurrentForce = math.Max(0, war.DefenderCurrentForce-defenderLosses)
+
+	// Расход ресурсов (пропорционален интенсивности боя)
+	attackerResourceCost := WarResourceCostBase * (1.0 + attackerLosses*WarResourceLossFactor)
+	defenderResourceCost := WarResourceCostBase * (1.0 + defenderLosses*WarResourceLossFactor) * WarResourceDefenderDiscount
+
+	attacker.Resources = clamp(attacker.Resources-attackerResourceCost, 0, 100)
+	defender.Resources = clamp(defender.Resources-defenderResourceCost, 0, 100)
+
+	momentumChange := lanchesterInvariant * WarMomentumScaleFactor
+	war.Momentum += momentumChange
+	war.TicksDuration++
+	war.LastUpdateTick = sim.State.GlobalTick
+
+	// Процент потерь от начального контингента
+	attackerLossPercent := 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
+	defenderLossPercent := 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
+
+	if attackerLosses+defenderLosses > 0 {
+		lossRatio = (defenderLosses - attackerLosses) / (attackerLosses + defenderLosses)
+	}
+
+	return attackerLossPercent, defenderLossPercent, lossRatio
+}
+
+func updateMorale(war *WarState, lossRatio float64) {
+
+	moraleRandomFactor := WarMoraleRandomMin + rand.Float64()*WarMoraleRandomRange
+
+	// Базовое изменение морали
+	baseMoraleChange := math.Abs(lossRatio) * WarMoraleChangeFactor * moraleRandomFactor
+
+	if lossRatio > 0 {
+		// Защитник несёт больше потерь → мораль атакующего растёт, защитника падает
+		war.AttackerMorale = clamp(war.AttackerMorale+baseMoraleChange, 0, 100)
+		war.DefenderMorale = clamp(war.DefenderMorale-baseMoraleChange*WarMoraleLoserPenalty, 0, 100)
+	} else {
+		// Атакующий несёт больше потерь
+		war.DefenderMorale = clamp(war.DefenderMorale+baseMoraleChange, 0, 100)
+		war.AttackerMorale = clamp(war.AttackerMorale-baseMoraleChange*WarMoraleLoserPenalty, 0, 100)
+	}
+
+}
+
+func evaluateWarOutcome(attacker, defender *FactionState, war *WarState, attackerLossPercent, defenderLossPercent, currentForceRatio float64) WarOutcome {
+
+	defenderSurrenders := defenderLossPercent >= WarSurrenderLossThreshold ||
+		war.DefenderMorale <= WarSurrenderMoraleThreshold ||
+		war.DefenderCurrentForce <= 0 ||
+		defender.Resources <= WarResourceRetreatThreshold
+
+	if defenderSurrenders {
+		return WarOutcomeDefenderSurrenders
+	}
+
+	attackerRetreats := attackerLossPercent >= WarRetreatLossThreshold ||
+		war.AttackerMorale <= WarAttackerRetreatMoraleThreshold ||
+		war.AttackerCurrentForce <= 0 ||
+		attacker.Resources <= WarResourceRetreatThreshold ||
+		currentForceRatio < WarCriticalForceRatio
+
+	if attackerRetreats {
+		return WarOutcomeAttackerRetreats
+	}
+
+	defenderRetreats := defenderLossPercent >= WarRetreatLossThreshold ||
+		war.DefenderMorale <= WarDefenderRetreatMoraleThreshold ||
+		currentForceRatio > 1.0/WarCriticalForceRatio
+
+	if defenderRetreats {
+		return WarOutcomeDefenderRetreats
+	}
+
+	return WarOutcomeContinues
+}
+
+func (sim *WorldSimulator) resolveWarOutcome(war *WarState, attacker, defender *FactionState,
+	domain *DomainState, outcome WarOutcome,
+	attackerLossPercent, defenderLossPercent float64, currentForceRatio float64) {
+	switch outcome {
+	case WarOutcomeDefenderSurrenders:
+		war.IsOver = true
+		war.WinnersID = map[string]string{attacker.ID: "defender_surrendered"}
+		war.LosersID = map[string]string{defender.ID: "surrendered"}
+		gameEventBuilder := NewBuilderWarEvent()
+		gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
+			Attacker:            attacker.ID,
+			Defender:            defender.ID,
+			Domain:              domain.ID,
+			Reason:              "defender_surrendered",
+			WinnerID:            attacker.ID,
+			LoserID:             defender.ID,
+			AttackerLossesPct:   attackerLossPercent * 100,
+			DefenderLossesPct:   defenderLossPercent * 100,
+			AttackerMorale:      war.AttackerMorale,
+			DefenderMorale:      war.DefenderMorale,
+			AttackerForceRemain: war.AttackerCurrentForce,
+			DefenderForceRemain: war.DefenderCurrentForce,
+		})
+		sim.emitEventLocked(gameEventBuilder.Build())
+		sim.FinishWar(war, attacker, defender, domain)
+
+	case WarOutcomeAttackerRetreats:
+		war.IsOver = true
+		war.WinnersID = map[string]string{defender.ID: "attacker_retreated"}
+		war.LosersID = map[string]string{attacker.ID: "retreated"}
+		gameEventBuilder := NewBuilderWarEvent()
+		gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
+			Attacker:            attacker.ID,
+			Defender:            defender.ID,
+			Domain:              domain.ID,
+			Reason:              "attacker_retreated",
+			WinnerID:            defender.ID,
+			LoserID:             attacker.ID,
+			AttackerLossesPct:   attackerLossPercent * 100,
+			DefenderLossesPct:   defenderLossPercent * 100,
+			AttackerMorale:      war.AttackerMorale,
+			DefenderMorale:      war.DefenderMorale,
+			AttackerForceRemain: war.AttackerCurrentForce,
+			DefenderForceRemain: war.DefenderCurrentForce,
+		})
+		sim.emitEventLocked(gameEventBuilder.Build())
+		sim.FinishWar(war, defender, attacker, domain)
+
+	case WarOutcomeDefenderRetreats:
+		// Защитник может отступить, сохранив часть войск, но теряет домен
+		war.IsOver = true
+		war.WinnersID = map[string]string{attacker.ID: "defender_retreated"}
+		war.LosersID = map[string]string{defender.ID: "strategic_retreat"}
+		gameEventBuilder := NewBuilderWarEvent()
+		gameEventBuilder.SetType("WAR_ENDED").SetTick(sim.State.GlobalTick).SetData(WarEndedData{
+			Attacker:            attacker.ID,
+			Defender:            defender.ID,
+			Domain:              domain.ID,
+			Reason:              "defender_strategic_retreat",
+			WinnerID:            attacker.ID,
+			LoserID:             defender.ID,
+			AttackerLossesPct:   attackerLossPercent * 100,
+			DefenderLossesPct:   defenderLossPercent * 100,
+			AttackerMorale:      war.AttackerMorale,
+			DefenderMorale:      war.DefenderMorale,
+			AttackerForceRemain: war.AttackerCurrentForce,
+			DefenderForceRemain: war.DefenderCurrentForce,
+		})
+		sim.emitEventLocked(gameEventBuilder.Build())
+		sim.FinishWar(war, attacker, defender, domain)
+
+	case WarOutcomeContinues:
+		warLogBuilder := NewBuilderWarEvent()
+		warLogBuilder.SetType("WAR_UPDATE").SetTick(sim.State.GlobalTick).SetData(WarUpdateData{
+			Attacker:          attacker.ID,
+			Defender:          defender.ID,
+			Domain:            domain.ID,
+			Momentum:          war.Momentum,
+			AttackerMorale:    war.AttackerMorale,
+			DefenderMorale:    war.DefenderMorale,
+			AttackerForce:     war.AttackerCurrentForce,
+			DefenderForce:     war.DefenderCurrentForce,
+			AttackerLossesPct: attackerLossPercent * 100,
+			DefenderLossesPct: defenderLossPercent * 100,
+			ForceRatio:        currentForceRatio,
+		})
+		sim.emitEventLocked(warLogBuilder.Build())
+	}
+
 }
