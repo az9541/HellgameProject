@@ -162,6 +162,7 @@ func (sim *WorldSimulator) UpdateDomainResources() {
 		}
 		resMultiplier = 1 + (resMultiplier-1)*0.6
 		domain.Resources = minFloat(domain.Resources+resRegen*resMultiplier, 100)
+		_ = domain.Resources
 	}
 }
 
