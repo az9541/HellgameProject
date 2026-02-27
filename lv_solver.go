@@ -11,7 +11,7 @@ func applyLVReactionStep(
 	growthRateByFaction map[string]float64, dt float64,
 	warMaskByDomain map[string]bool) InfluenceState {
 
-	nextInfluence := state.Clone() // Копируем текущее состояние, чтобы записывать в него результаты
+	nextInfluence := state.CopyInfluenceState() // Копируем текущее состояние, чтобы записывать в него результаты
 
 	const (
 		lvCapacityK        = 1.0
