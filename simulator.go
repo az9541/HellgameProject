@@ -182,6 +182,7 @@ func (sim *WorldSimulator) Tick() {
 	}
 	sim.UpdateDomainStability()
 	sim.UpdateDomainDanger()
+	sim.UpdateDomainPopulation()
 	sim.UpdateFactionMilitaryForce()
 	sim.UpdateFactionsOtherParameters()
 	sim.UpdateDomainResources()
