@@ -1,14 +1,50 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 )
 
 func main() {
+	deterministic := flag.Bool("deterministic", false, "run simulator in deterministic mode")
+	seed := flag.Int64("seed", 1, "seed for deterministic mode")
+	batchSeeds := flag.String("batch-seeds", "", "seed range for batch mode (N or A:B)")
+	batchTicks := flag.Int64("batch-ticks", 200, "ticks per run in batch mode")
+	batchOut := flag.String("batch-out", "", "output CSV path for batch mode")
+	flag.Parse()
+
+	if strings.TrimSpace(*batchSeeds) != "" || strings.TrimSpace(*batchOut) != "" {
+		if strings.TrimSpace(*batchSeeds) == "" || strings.TrimSpace(*batchOut) == "" {
+			log.Fatalf("both --batch-seeds and --batch-out are required in batch mode")
+		}
+		seedFrom, seedTo, err := ParseSeedRange(*batchSeeds)
+		if err != nil {
+			log.Fatalf("invalid --batch-seeds: %v", err)
+		}
+		runs, err := RunSeedBatch(SeedBatchConfig{
+			SeedFrom: seedFrom,
+			SeedTo:   seedTo,
+			Ticks:    *batchTicks,
+			Output:   *batchOut,
+		})
+		if err != nil {
+			log.Fatalf("batch failed: %v", err)
+		}
+		fmt.Printf("✅ Batch completed: runs=%d seeds=%d:%d ticks=%d csv=%s\n", runs, seedFrom, seedTo, *batchTicks, *batchOut)
+		return
+	}
+
+	simCfg := SimulationConfig{}
+	if *deterministic {
+		simCfg.Deterministic = true
+		simCfg.Seed = *seed
+	}
+
 	// Initialize simulator (the heart of the backend)
-	simulator := NewWorldSimulator()
+	simulator := NewWorldSimulatorWithConfig(simCfg)
 	StartEventLogger(simulator.EventBus, 200)
 	simulator.StartDomainEffectsSubscriber(200)
 
