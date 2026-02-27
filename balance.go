@@ -97,9 +97,9 @@ const (
 	// K: Базовая емкость домена (Reaction)
 	PopBaseCapacity = 20000.0
 	// D: Коэффициент диффузии (Diffusion) - случайное блуждание
-	PopDiffusionCoeff = 0.001
+	PopDiffusionCoeff = 0.0001 // Уменьшено в 10 раз
 	// \mu: Подвижность (Convection) - скорость направленного бегства по градиенту
-	PopConvectionMobility = 0.005
+	PopConvectionMobility = 0.0001 // Уменьшено в 25 раз
 	// Веса для расчета потенциала домена (U)
 	PopPotentialStabilityWeight = 1.0
 	PopPotentialDangerWeight    = 10.0
