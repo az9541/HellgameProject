@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -14,6 +15,16 @@ type WorldSimulator struct {
 	// Channels for goroutines
 	stop     chan bool
 	EventBus *EventPublisher
+	cfg      SimulationConfig
+}
+
+// SimulationConfig позволяет запускать симуляцию в повторяемом режиме для отладки.
+type SimulationConfig struct {
+	Deterministic       bool
+	Seed                int64
+	DisableRandomEvents bool
+	DisableBackground   bool
+	DisableKPPTickLogs  bool
 }
 
 // FactionState отслеживает состояние фракции
@@ -96,6 +107,24 @@ type DomainTimedEffect struct {
 
 // NewWorldSimulator создаёт новый симулятор
 func NewWorldSimulator() *WorldSimulator {
+	return NewWorldSimulatorWithConfig(SimulationConfig{})
+}
+
+// NewWorldSimulatorWithConfig создаёт симулятор с настраиваемым режимом.
+func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
+	if cfg.Deterministic {
+		if cfg.Seed == 0 {
+			cfg.Seed = 1
+		}
+		// В детерминированном режиме случайные world events и фоновый loop обычно мешают A/B отладке.
+		cfg.DisableRandomEvents = true
+		cfg.DisableBackground = true
+		cfg.DisableKPPTickLogs = true
+		rand.Seed(cfg.Seed)
+	} else {
+		rand.Seed(time.Now().UnixNano())
+	}
+
 	domains, _ := createInitialDomains()
 	state := &WorldState{
 		Factions:   createInitialFactions(),
@@ -110,6 +139,7 @@ func NewWorldSimulator() *WorldSimulator {
 		State:    state,
 		stop:     make(chan bool),
 		EventBus: NewEventPublisher(),
+		cfg:      cfg,
 	}
 	sim.initializeFactionInfluence()
 	return sim
@@ -117,6 +147,11 @@ func NewWorldSimulator() *WorldSimulator {
 
 // Start запускает фоновые горутины симуляции
 func (sim *WorldSimulator) Start() {
+	if sim.cfg.DisableBackground {
+		log.Println("🔒 Background simulation loop disabled by config")
+		return
+	}
+
 	log.Println("🚀 Starting world simulation goroutines...")
 
 	go sim.runTimeLoop()
@@ -139,7 +174,7 @@ func (sim *WorldSimulator) Tick() {
 		sim.executeFactionActions()
 	}
 	// 3. Раз в 9 тиков (45 сек) происходят случайные события
-	if sim.State.GlobalTick%9 == 0 {
+	if !sim.cfg.DisableRandomEvents && sim.State.GlobalTick%9 == 0 {
 		event := sim.generateTickEvent(sim.State.GlobalTick)
 		if event != nil {
 			sim.emitEventLocked(*event)
