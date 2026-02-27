@@ -89,3 +89,18 @@ const (
 	WarOutcomeAttackerRetreats
 	WarOutcomeDefenderRetreats
 )
+
+// Константы для модели Конвекции-Диффузии-Реакции. Динамика популяции
+const (
+	// r: Базовый коэффициент роста (Reaction)
+	PopBaseGrowthRate = 0.0005
+	// K: Базовая емкость домена (Reaction)
+	PopBaseCapacity = 20000.0
+	// D: Коэффициент диффузии (Diffusion) - случайное блуждание
+	PopDiffusionCoeff = 0.001
+	// \mu: Подвижность (Convection) - скорость направленного бегства по градиенту
+	PopConvectionMobility = 0.005
+	// Веса для расчета потенциала домена (U)
+	PopPotentialStabilityWeight = 1.0
+	PopPotentialDangerWeight    = 10.0
+)
