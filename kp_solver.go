@@ -107,7 +107,7 @@ func SolveKPGraph(
 func applyKPPDiffusionStep(state InfluenceState, factionIDs []string, domains []*DomainState, neighbors map[string][]string,
 	diffusionRateByFaction map[string]float64, dt float64, warMaskByDomain map[string]bool) InfluenceState {
 
-	nextInflence := state.Clone() // Копируем текущее состояние, чтобы записывать в него результаты
+	nextInflence := state.CopyInfluenceState() // Копируем текущее состояние, чтобы записывать в него результаты
 
 	eff := func(x float64) float64 { // Обрезка по DiffusionThreshold - мелкое влияниене перетекает в другие домены
 		return maxFloat(0, x-DiffusionThreshold)
