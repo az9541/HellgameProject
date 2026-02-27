@@ -53,16 +53,18 @@ func (sim *WorldSimulator) runKPPSimulation() {
 		capDomainInfluence(domain.Influence)
 	}
 
-	for _, factionID := range factionIDs {
-		row := ""
-		for i := range domains {
-			row += fmt.Sprintf("%.3f", domains[i].Influence[factionID])
-			if i < len(domains)-1 {
-				row += ", "
+	if !sim.cfg.DisableKPPTickLogs { // Отключем спам логов KPP при батчевом дебаге
+		for _, factionID := range factionIDs {
+			row := ""
+			for i := range domains {
+				row += fmt.Sprintf("%.3f", domains[i].Influence[factionID])
+				if i < len(domains)-1 {
+					row += ", "
+				}
 			}
+			log.Printf("EXPANSION_DENSITIES_COUPLED faction=%q tick=%d densities=[%s]",
+				factionID, sim.State.GlobalTick, row)
 		}
-		log.Printf("EXPANSION_DENSITIES_COUPLED faction=%q tick=%d densities=[%s]",
-			factionID, sim.State.GlobalTick, row)
 	}
 }
 
