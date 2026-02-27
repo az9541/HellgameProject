@@ -56,6 +56,7 @@ func (sim *WorldSimulator) copyDomainStates() map[string]*DomainState {
 			Influence:       influenceCopy,
 			AdjacentDomains: adjacentCopy,
 			Events:          eventsCopy,
+			Resources:       domain.Resources,
 		}
 	}
 	return result
@@ -109,4 +110,20 @@ func (sim *WorldSimulator) copyEventLog() []GameEvent {
 	result := make([]GameEvent, len(sim.State.EventLog))
 	copy(result, sim.State.EventLog)
 	return result
+}
+
+// CopyInfluenceState создает глубокую копию InfluenceState
+func (state InfluenceState) CopyInfluenceState() InfluenceState {
+	if state == nil {
+		return nil
+	}
+	out := make(InfluenceState, len(state))
+	for factionID, domainInfluence := range state {
+		domainInfluenceCopy := make(map[string]float64, len(domainInfluence))
+		for domainID, influence := range domainInfluence {
+			domainInfluenceCopy[domainID] = influence
+		}
+		out[factionID] = domainInfluenceCopy
+	}
+	return out
 }
