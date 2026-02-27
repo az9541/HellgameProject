@@ -337,7 +337,7 @@ func applySourceStep(state InfluenceState, factionIDs []string, domains []*Domai
 	factionOwnedDomains map[string]map[string]bool, wealthByFaction map[string]float64,
 	dt float64, warMaskByDomain map[string]bool) InfluenceState {
 	const warSuppressionForSource = 0.2 // Война сильно подавляет генерацию влияния в своих доменах
-	nextInfluence := state.Clone()
+	nextInfluence := state.CopyInfluenceState()
 
 	for _, factionID := range factionIDs {
 		wealth := wealthByFaction[factionID]
@@ -363,7 +363,7 @@ func applySpilloverStep(state InfluenceState, factionStates map[string]FactionSt
 		domainID       string
 		attractiveness float64
 	}
-	nextInfluence := state.Clone()
+	nextInfluence := state.CopyInfluenceState()
 
 	domainByID := make(map[string]*DomainState, len(domains))
 	for _, d := range domains {
