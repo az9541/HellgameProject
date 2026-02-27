@@ -8,7 +8,11 @@ import (
 
 // executeFactionActions выполняет действия всех фракций
 func (sim *WorldSimulator) executeFactionActions() {
-	for _, faction := range sim.State.Factions {
+	for _, factionID := range getSortedFactionKeys(sim.State.Factions) {
+		faction := sim.State.Factions[factionID]
+		if faction == nil {
+			continue
+		}
 		// Сначала всегда проверяем кандидатуры на захват по текущим плотностям влияния
 		topDomains := faction.getTopFactionDomainInfluence(sim)
 		if len(topDomains) == 0 {
@@ -121,11 +125,10 @@ func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, d
 
 // establishTradeRoute устанавливает торговый маршрут между двумя доменами
 func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
-	// Выбираем два рандомных домена
-	domains := make([]*DomainState, 0)
-	for _, d := range sim.State.Domains {
-		domains = append(domains, d)
-	}
+	// Выбираем два рандомных домена в стабильном порядке.
+	// Иначе map-iteration ломает воспроизводимость даже с фиксированным seed.
+	domainKeys := getSortedDomainKeys(sim.State.Domains)
+	domains := getDomainsList(domainKeys, sim.State.Domains)
 
 	if len(domains) < 2 {
 		return
@@ -209,6 +212,9 @@ func (faction *FactionState) getTopFactionDomainInfluence(sim *WorldSimulator) [
 	sort.Slice(topDomsSlice, func(i, j int) bool {
 		inflI := topDomsSlice[i].Influence[faction.ID]
 		inflJ := topDomsSlice[j].Influence[faction.ID]
+		if inflI == inflJ {
+			return topDomsSlice[i].ID < topDomsSlice[j].ID
+		}
 		return inflI > inflJ
 	})
 	return topDomsSlice
