@@ -197,7 +197,7 @@ func createInitialDomains() (map[string]*DomainState, []string) {
 			Stability:    45,
 			ControlledBy: FactionNeoTormentors,
 			DangerLevel:  4,
-			Population:   8000,
+			Population:   6000,
 			Mood:         "chaotic",
 			Influence:    make(map[string]float64),
 		},
