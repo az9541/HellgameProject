@@ -14,14 +14,16 @@ func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
 		}
 
 		result[id] = &FactionState{
-			ID:            faction.ID,
-			Name:          faction.Name,
-			Power:         faction.Power,
-			Territory:     faction.Territory,
-			DomainsHeld:   domainsCopy,
-			Attitude:      attitudeCopy,
-			Resources:     faction.Resources,
-			MilitaryForce: faction.MilitaryForce,
+			ID:              faction.ID,
+			Name:            faction.Name,
+			Power:           faction.Power,
+			Territory:       faction.Territory,
+			DomainsHeld:     domainsCopy,
+			Attitude:        attitudeCopy,
+			Resources:       faction.Resources,
+			MilitaryForce:   faction.MilitaryForce,
+			WealthIndex:     faction.WealthIndex,
+			TotalPopulation: faction.TotalPopulation,
 		}
 	}
 	return result
