@@ -247,7 +247,7 @@ func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 		factionsInWar[war.DefenderID] = struct{}{}
 	}
 	for _, faction := range sim.State.Factions {
-		wealth := sim.factionWealthIndex(faction)
+		wealth := faction.WealthIndex
 		if wealth < wealthDecayThreshold {
 			decay := (wealthDecayThreshold - wealth) * decayStrength
 			faction.MilitaryForce = clamp(faction.MilitaryForce-decay, 0, MaxMilitaryForce)
@@ -266,7 +266,12 @@ func (sim *WorldSimulator) UpdateFactionMilitaryForce() {
 
 func (sim *WorldSimulator) UpdateFactionsOtherParameters() {
 	for _, faction := range sim.State.Factions {
-		faction.Power = clamp(faction.Power+(sim.factionWealthIndex(faction)-0.5)*3, 5, 100)
+		faction.TotalPopulation = sim.getTotalPopulation(faction)
+		// ОДИН раз за тик пересчитываем WealthIndex и кэшируем его
+		wealth := sim.factionWealthIndex(faction)
+		faction.WealthIndex = wealth
+		// Обновляем параметры, которые зависят от экономики
+		faction.Power = clamp(faction.Power+(wealth-0.5)*3, 5, 100)
 		faction.Territory = float64(len(faction.DomainsHeld))
 	}
 }
@@ -299,7 +304,7 @@ func (sim *WorldSimulator) calculateForcesRecorevingModifier(faction *FactionSta
 		case domain.Population >= 20000:
 			domainMultiplier *= 2.5
 		default:
-			domainMultiplier *= 0.9
+			domainMultiplier *= 0.97
 		}
 
 		switch {
@@ -334,7 +339,7 @@ func (sim *WorldSimulator) calculateForcesRecorevingModifier(faction *FactionSta
 
 	}
 	averageMultiplier := totalMultiplier / float64(len(controlledDomains))
-	return clamp(averageMultiplier, 0.25, 3.0) * sim.factionWealthIndex(faction)
+	return clamp(averageMultiplier, 0.25, 3.0) * faction.WealthIndex
 }
 
 func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimulator) (bool, []*DomainState) {
@@ -363,7 +368,6 @@ func calcDomainAttractiveness(factionRes float64, domain *DomainState, influence
 	dangerFactor := 1.3 - clamp(float64(domain.DangerLevel)/10.0, 0, 0.9)
 	resFactor := 1.0 + clamp(domain.Resources/(factionRes+1.0), 0, 1.5)
 	warPenalty := 1.0 - clamp(float64(activeWars)*0.2, 0, 0.8)
-	//controlledFactionWeakness := clamp(((100-faction.MilitaryForce)/faction.Power)*3, 0.2, 3.0)
 	return popFactor * stabFactor * inflFactor * dangerFactor * warPenalty * resFactor
 }
 
@@ -406,4 +410,14 @@ func (sim *WorldSimulator) factionWealthIndex(faction *FactionState) (wealthInde
 	dangerIndex := clamp(1.0-avgDanger/10.0, 0.05, 1.0)
 	wealthIndex = clamp(0.35*stabilityIndex+0.30*dangerIndex+0.20*popIndex+0.15*domainCountIndex, 0.05, 1.0)
 	return wealthIndex
+}
+
+func (sim *WorldSimulator) getTotalPopulation(faction *FactionState) int {
+	totalPop := 0
+	for _, domain := range sim.State.Domains {
+		if domain.ControlledBy == faction.ID {
+			totalPop += domain.Population
+		}
+	}
+	return totalPop
 }
