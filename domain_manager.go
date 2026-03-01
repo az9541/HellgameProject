@@ -27,22 +27,21 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		// TODO!!! Учесть эффекты корректно. Не просто обновлять curvedEffect для одной фракции.
 		curvedEffect := 1.0
 		for _, effect := range activeEffects {
-			if effect.FactionID == FactionNeoTormentors {
-				effectCoefficient := float64(sim.State.GlobalTick-effect.StartTick) / float64(effect.Duration)
-				curvedEffect = 1 - effect.BasePenalty*math.Pow(10, -effect.DecayRate*effectCoefficient)
-			}
+			effectCoefficient := float64(sim.State.GlobalTick-effect.StartTick) / float64(effect.Duration)
+			curvedEffect = 1 - effect.BasePenalty*math.Pow(10, -effect.DecayRate*effectCoefficient)
 		}
 		// Модификатор владельца домена
 		switch domain.ControlledBy {
 		case FactionNone:
 			stabilityRegenModifier *= 0.5
 		case FactionCorporateConsortium:
-			stabilityRegenModifier *= 1.2
+			stabilityRegenModifier *= 1.05
 		case FactionRepentantCommunes:
-			stabilityRegenModifier *= 1.5
+			stabilityRegenModifier *= 1.1
 		case FactionNeoTormentors:
-			stabilityRegenModifier *= curvedEffect
+			stabilityRegenModifier *= 1.02
 		}
+		stabilityRegenModifier *= curvedEffect
 		// Модификатор популяции
 		switch {
 		case domain.Population >= 6000:
@@ -60,13 +59,13 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		// Модификатор уровня опасности
 		switch {
 		case domain.DangerLevel >= 9:
-			stabilityRegenModifier *= 0.7
+			stabilityRegenModifier *= 0.9
 		case domain.DangerLevel >= 7:
-			stabilityRegenModifier *= 0.85
+			stabilityRegenModifier *= 1
 		case domain.DangerLevel >= 5:
-			stabilityRegenModifier *= 0.95
+			stabilityRegenModifier *= 1.02
 		case domain.DangerLevel >= 3:
-			stabilityRegenModifier *= 1.0
+			stabilityRegenModifier *= 1.03
 		case domain.DangerLevel >= 1:
 			stabilityRegenModifier *= 1.05
 		default:
@@ -162,7 +161,6 @@ func (sim *WorldSimulator) UpdateDomainResources() {
 		}
 		resMultiplier = 1 + (resMultiplier-1)*0.6
 		domain.Resources = minFloat(domain.Resources+resRegen*resMultiplier, 100)
-		_ = domain.Resources
 	}
 }
 
@@ -219,35 +217,3 @@ func getDomainsList(keys []string, domains map[string]*DomainState) []*DomainSta
 	}
 	return domainsSlice
 }
-
-/*func (sim *WorldSimulator) StartDomainStabilityRecovery(domain *DomainState, faction *FactionState, duration int) {
-	// Подписываемся на событие окончания войны в этом домене
-	ch := sim.EventBus.Subscribe(10)
-
-	go func() {
-		defer sim.EventBus.Unsubscribe(ch)
-
-		ticksPassed := 0
-		for event := range ch {
-			if event.EventKind != EventKindTick {
-				continue
-			}
-			ticksPassed++
-			if ticksPassed >= duration {
-				return
-			}
-
-			sim.mu.Lock()
-			progress := float64(ticksPassed) / float64(duration)
-			var stabilityShift float64
-			switch faction.ID {
-			case FactionNeoTormentors:
-				stabilityShift = 0.15 * progress
-			default:
-				stabilityShift = 0.1 * progress
-			}
-			domain.Stability = clamp(domain.Stability+stabilityShift, 0, 100)
-			sim.mu.Unlock()
-		}
-	}()
-}*/
