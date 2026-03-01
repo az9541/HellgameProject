@@ -29,15 +29,17 @@ type SimulationConfig struct {
 
 // FactionState отслеживает состояние фракции
 type FactionState struct {
-	ID             string             `json:"id"`
-	Name           string             `json:"name"`
-	Power          float64            `json:"power"`
-	Territory      float64            `json:"territory"`
-	DomainsHeld    []string           `json:"domains_held"`
-	Attitude       map[string]float64 `json:"attitude"`
-	Resources      float64            `json:"resources"`
-	MilitaryForce  float64            `json:"military_force"`
-	LastActionTime int64              `json:"last_action_time"`
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	Power           float64            `json:"power"`
+	Territory       float64            `json:"territory"`
+	DomainsHeld     []string           `json:"domains_held"`
+	Attitude        map[string]float64 `json:"attitude"`
+	Resources       float64            `json:"resources"`
+	MilitaryForce   float64            `json:"military_force"`
+	LastActionTime  int64              `json:"last_action_time"`
+	WealthIndex     float64            `json:"wealth_index"`
+	TotalPopulation int                `json:"total_population"`
 }
 
 // DomainState отслеживает состояние домена
