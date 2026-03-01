@@ -156,7 +156,7 @@ func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domai
 
 		// 2) Source
 		if hasOwned {
-			wealth := sim.factionWealthIndex(faction)
+			wealth := faction.WealthIndex
 			for _, domainID := range domainIDs {
 				if ownedByDomain[domainID] {
 					influence[domainID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-influence[domainID])
@@ -250,7 +250,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 		kppParams := NewKPPParameters(faction)
 		diffusionRateByFaction[factionID] = kppParams.Diffusion
 		growthRateByFaction[factionID] = kppParams.Growth
-		wealthByFaction[factionID] = sim.factionWealthIndex(faction)
+		wealthByFaction[factionID] = faction.WealthIndex
 		for _, d := range domains {
 			ownedByFactionDomain[factionID][d.ID] = (d.ControlledBy == factionID)
 		}
