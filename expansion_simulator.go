@@ -68,145 +68,6 @@ func (sim *WorldSimulator) runKPPSimulation() {
 	}
 }
 
-// SimulateFactionExpansion симулирует один шаг распространения влияния фракции по доменам.
-// Общая схема:
-// 1) Берём текущее влияние фракции по доменам (u).
-// 2) Делаем шаг KPP на графе доменов (диффузия + реакция).
-// 3) Подпитываем собственные домены генератором влияния.
-// 4) Переносим избыток (spillover) из своих доменов в соседние чужие.
-// 5) Клампим значения и возвращаем массив u.
-func (sim *WorldSimulator) SimulateFactionExpansion(faction *FactionState, domains []*DomainState, ticks int) []float64 {
-	n := len(domains)
-	if faction == nil || n == 0 || ticks <= 0 {
-		return nil
-	}
-
-	neighbors := buildNeighborsFromDomains(domains)
-
-	// Стабильный порядок доменов для конвертации map -> []float64 на выходе
-	domainIDs := make([]string, n)
-	for i, d := range domains {
-		domainIDs[i] = d.ID
-	}
-
-	ownedByDomain := make(map[string]bool, n)
-	hasOwned := false
-	for _, d := range domains {
-		isOwned := d.ControlledBy == faction.ID
-		ownedByDomain[d.ID] = isOwned
-		if isOwned {
-			hasOwned = true
-		}
-	}
-
-	// Текущее влияние фракции по domainID
-	influence := make(map[string]float64, n)
-	for _, d := range domains {
-		v := d.Influence[faction.ID]
-		if v <= 0 {
-			v = MinInfluence
-		}
-		influence[d.ID] = clamp(v, MinInfluence, 1.0)
-	}
-
-	// KPP-параметры (как было)
-	D := minFloat(1.0, 0.002+0.0015*(faction.Power/100.0))
-	r := minFloat(0.1, 0.005+0.065*(faction.Territory/5.0))
-	dt := 1.0
-
-	// Число субшагов для устойчивости
-	maxDeg := 0
-	for _, nb := range neighbors {
-		if len(nb) > maxDeg {
-			maxDeg = len(nb)
-		}
-	}
-	substeps := 1
-	if D > 0 && maxDeg > 0 {
-		substeps = int(math.Ceil(dt * D * float64(maxDeg) * 2.0))
-		substeps = maxInt(1, minInt(1000, substeps))
-	}
-	dtSub := dt / float64(substeps)
-
-	eff := func(x float64) float64 {
-		return maxFloat(0, x-DiffusionThreshold)
-	}
-
-	for h := 0; h < ticks; h++ {
-		// 1) KPP (диффузия + реакция) на субшагах
-		for s := 0; s < substeps; s++ {
-			next := make(map[string]float64, n)
-
-			for _, domainID := range domainIDs {
-				ui := influence[domainID]
-				uiEff := eff(ui)
-
-				diff := 0.0
-				for _, neighborID := range neighbors[domainID] {
-					diff += eff(influence[neighborID]) - uiEff
-				}
-
-				diffusion := D * diff
-				reaction := r * ui * (1.0 - ui)
-				next[domainID] = ui + dtSub*(diffusion+reaction)
-			}
-
-			influence = next
-		}
-
-		// 2) Source
-		if hasOwned {
-			wealth := faction.WealthIndex
-			for _, domainID := range domainIDs {
-				if ownedByDomain[domainID] {
-					influence[domainID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-influence[domainID])
-				}
-			}
-		}
-
-		// 3) Spillover
-		for _, domainID := range domainIDs {
-			if !ownedByDomain[domainID] {
-				continue
-			}
-
-			overflow := spillRate * maxFloat(0, influence[domainID]-spillThreshold)
-			if overflow <= 0 {
-				continue
-			}
-
-			count := 0
-			for _, neighborID := range neighbors[domainID] {
-				if !ownedByDomain[neighborID] {
-					count++
-				}
-			}
-			if count == 0 {
-				continue
-			}
-
-			share := overflow / float64(count)
-			for _, neighborID := range neighbors[domainID] {
-				if !ownedByDomain[neighborID] {
-					influence[neighborID] += share
-				}
-			}
-		}
-
-		// 4) Clamp
-		for _, domainID := range domainIDs {
-			influence[domainID] = clamp(influence[domainID], MinInfluence, 1.0)
-		}
-	}
-
-	// map -> []float64 в порядке domains
-	out := make([]float64, n)
-	for i, domainID := range domainIDs {
-		out[i] = influence[domainID]
-	}
-	return out
-}
-
 // TODO!! Насущие проблемы:
 // 1 - Проценты влияния на домен могут уходить за 100%. Кейс с войной
 // 2 - В случае войны влияние не замораживается, а продолжает резко расти для атакующего, пробивая в итоге 100%
@@ -363,6 +224,7 @@ func applySpilloverStep(state InfluenceState, factionStates map[string]FactionSt
 		domainID       string
 		attractiveness float64
 	}
+	medianPopulation := calculateMedianPopulation(domains)
 	nextInfluence := state.CopyInfluenceState()
 
 	domainByID := make(map[string]*DomainState, len(domains))
@@ -432,7 +294,13 @@ func applySpilloverStep(state InfluenceState, factionStates map[string]FactionSt
 
 			for _, candidate := range candidates {
 				share := overflow * (candidate.attractiveness / totalAttractiveness)
-				nextInfluence[factionID][candidate.domainID] += share
+				// Сопротивление переливу в перенаселенный домен
+				popScale := 1.0
+				if domainByID[candidate.domainID].Population > 0 {
+					popScale = clamp(medianPopulation/float64(domainByID[candidate.domainID].Population), 0.1, 2.0)
+				}
+
+				nextInfluence[factionID][candidate.domainID] += share * popScale
 			}
 		}
 	}

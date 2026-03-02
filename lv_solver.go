@@ -11,7 +11,8 @@ func applyLVReactionStep(
 	growthRateByFaction map[string]float64, dt float64,
 	warMaskByDomain map[string]bool) InfluenceState {
 
-	nextInfluence := state.CopyInfluenceState() // Копируем текущее состояние, чтобы записывать в него результаты
+	nextInfluence := state.CopyInfluenceState()            // Копируем текущее состояние, чтобы записывать в него результаты
+	medianPopulation := calculateMedianPopulation(domains) // Считаем медианную популяцию для масштабирования роста
 
 	const (
 		lvCapacityK        = 1.0
@@ -43,10 +44,16 @@ func applyLVReactionStep(
 			}
 			competition *= warScale // Война усиливает конкуренцию, подавляя рост
 
+			// Внутри цикла по доменам
+			popScale := 1.0
+			if domain.Population > 0 {
+				popScale = calculatePoplationScale(domain, medianPopulation)
+			}
+
 			influence := state[factionID][domain.ID]
-			crowding := 1.0 - totalCrowding/lvCapacityK                                                                   // Чем больше всего влияния, тем меньше рост (логистический рост)
-			influenceGrowthRate := influence * growthRateByFaction[factionID] * crowding * (1.0 - competition) * warScale // Рост с учётом всех факторов
-			nextInfluence[factionID][domain.ID] = influence + dt*influenceGrowthRate                                      // Обновляем влияние с учётом роста
+			crowding := 1.0 - totalCrowding/lvCapacityK // Чем больше всего влияния, тем меньше рост (логистический рост)
+			influenceGrowthRate := influence * growthRateByFaction[factionID] * popScale * crowding * (1.0 - competition) * warScale
+			nextInfluence[factionID][domain.ID] = influence + dt*influenceGrowthRate // Обновляем влияние с учётом роста
 		}
 	}
 	return nextInfluence
