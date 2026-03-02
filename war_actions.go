@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 )
@@ -56,8 +55,17 @@ func (sim *WorldSimulator) StartWarTrigger(attacker, defender *FactionState, dom
 
 	// Считаем, сколько атакующий МОЖЕТ выделить
 	attackerCommitted := clamp(attackerWantedMilitaryPower*attacker.WealthIndex, 0, attacker.MilitaryForce)
-	defenderCommitted := clamp(defender.MilitaryForce*defender.WealthIndex, 0, defender.MilitaryForce)
-	log.Printf("faction wealth attacker: %f", attacker.WealthIndex)
+	// Считаем, сколько выделяет защитник
+	domainImportanceCoeff := sim.calcDomainImportanceForFaction(domain, defender)
+
+	survivalFactor := 1.0
+	if len(defender.DomainsHeld) > 0 {
+		survivalFactor = 1.0 / float64(len(defender.DomainsHeld))
+	}
+
+	minGuaranteed := defender.MilitaryForce * clamp(survivalFactor*0.5, 0, 0.5)
+	willingnessToDefend := lerp(defender.WealthIndex, 1.0, domainImportanceCoeff)
+	defenderCommitted := clamp(defender.MilitaryForce*willingnessToDefend, minGuaranteed, defender.MilitaryForce)
 
 	if defender.MilitaryForce <= 0 {
 		// В auto-win ветке контингент тоже должен считаться выделенным,
@@ -286,17 +294,6 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId *FactionSt
 
 	basePenalty = clamp(basePenalty, 0.1, 1.0)
 
-	// Синхронно добавляем в State эффекты
-	newEffect := &DomainTimedEffect{
-		DomainID:    domain.ID,
-		FactionID:   winnerId.ID,
-		StartTick:   sim.State.GlobalTick,
-		Duration:    baseDuration,
-		BasePenalty: basePenalty,
-		DecayRate:   decayRate,
-	}
-	sim.State.TimedEffects[domain.ID] = append(sim.State.TimedEffects[domain.ID], newEffect)
-
 	// Возвращаем выживших бойцов обратно в резервы фракций
 	if attacker, ok := sim.State.Factions[war.AttackerID]; ok {
 		attacker.MilitaryForce = clamp(attacker.MilitaryForce+war.AttackerCurrentForce, 0, MaxMilitaryForce)
@@ -309,15 +306,16 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId *FactionSt
 		switch factionID {
 		case winnerId.ID:
 			momentumRatio := war.Momentum / WarMomentumNormFactor
+			var winnerLossRatio, winnerMoraleRatio float64
 			if winnerId.ID == war.AttackerID {
-				lossesRatio := 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
-				moraleRatio := war.AttackerMorale / 100.0
-				victoryScore := WarVictoryScoreWeightLosses*lossesRatio + WarVictoryScoreWeightMorale*moraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
+				winnerLossRatio = 1.0 - war.AttackerCurrentForce/war.AttackerCommittedForce
+				winnerMoraleRatio = war.AttackerMorale / 100.0
+				victoryScore := WarVictoryScoreWeightLosses*winnerLossRatio + WarVictoryScoreWeightMorale*winnerMoraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
 				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*WarWinnerInfluenceGain, 0, 1)
 			} else {
-				lossesRatio := 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
-				moraleRatio := war.DefenderMorale / 100.0
-				victoryScore := WarVictoryScoreWeightLosses*lossesRatio + WarVictoryScoreWeightMorale*moraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
+				winnerLossRatio = 1.0 - war.DefenderCurrentForce/war.DefenderCommittedForce
+				winnerMoraleRatio = war.DefenderMorale / 100.0
+				victoryScore := WarVictoryScoreWeightLosses*winnerLossRatio + WarVictoryScoreWeightMorale*winnerMoraleRatio + WarVictoryScoreWeightMomentum*momentumRatio
 				domain.Influence[factionID] = clamp(domain.Influence[factionID]+victoryScore*WarWinnerInfluenceGain, 0, 1)
 			}
 		case loserId.ID:
@@ -326,14 +324,17 @@ func (sim *WorldSimulator) FinishWar(war *WarState, winnerId, loserId *FactionSt
 			domain.Influence[factionID] = domain.Influence[factionID]
 		}
 	}
-	sim.State.TimedEffects[domain.ID] = append(sim.State.TimedEffects[domain.ID], &DomainTimedEffect{
+	// Синхронно добавляем в State эффекты
+	afterWarEffect := &DomainTimedEffect{
 		DomainID:    domain.ID,
 		FactionID:   winnerId.ID,
+		EffectType:  EffectTypeStabilityPenalty,
 		StartTick:   sim.State.GlobalTick,
 		Duration:    baseDuration,
 		BasePenalty: basePenalty,
 		DecayRate:   decayRate,
-	})
+	}
+	sim.State.TimedEffects[domain.ID] = append(sim.State.TimedEffects[domain.ID], afterWarEffect)
 	capDomainInfluence(domain.Influence)
 	sim.syncFactionDomains()
 }
@@ -463,7 +464,7 @@ func (sim *WorldSimulator) computeBattleCoefficients(attacker *FactionState, def
 }
 
 func (sim *WorldSimulator) applyBattleTick(war *WarState, attacker, defender *FactionState, domain *DomainState) (attLossPercent, defLossPercent, lossRatio float64) {
-	attackerLosses, defenderLosses, lanchesterInvariant := sim.computeBattleCoefficients(attacker, defender, domain, war)
+	defenderLosses, attackerLosses, lanchesterInvariant := sim.computeBattleCoefficients(attacker, defender, domain, war)
 
 	// Применяем потери к контингентам
 	war.AttackerCurrentForce = math.Max(0, war.AttackerCurrentForce-attackerLosses)
@@ -532,7 +533,7 @@ func evaluateWarOutcome(attacker, defender *FactionState, war *WarState, attacke
 		return WarOutcomeAttackerRetreats
 	}
 
-	defenderRetreats := defenderLossPercent >= WarRetreatLossThreshold ||
+	defenderRetreats := defenderLossPercent >= WarDefenderRetreatLossThreshold ||
 		war.DefenderMorale <= WarDefenderRetreatMoraleThreshold ||
 		currentForceRatio > 1.0/WarCriticalForceRatio
 
