@@ -1,4 +1,4 @@
-package main
+package engine
 
 type InfluenceState map[string]map[string]float64 //factionID -> domainID -> influence
 

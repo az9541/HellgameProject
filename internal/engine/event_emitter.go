@@ -1,4 +1,4 @@
-package main
+package engine
 
 // EmitEvent - это основной метод для генерации событий в мире.
 // Он принимает GameEvent, который содержит всю необходимую информацию о событии,
@@ -7,12 +7,12 @@ package main
 // , который может быть использован в любом месте симулятора мира.
 
 func (sim *WorldSimulator) EmitEvent(event GameEvent) GameEvent {
-	sim.mu.Lock()
-	defer sim.mu.Unlock()
+	sim.Mu.Lock()
+	defer sim.Mu.Unlock()
 	return sim.emitEventLocked(event)
 }
 
-// emitEventLocked - внутренний метод для генерации событий, который должен вызываться с уже заблокированным sim.mu.
+// emitEventLocked - внутренний метод для генерации событий, который должен вызываться с уже заблокированным sim.Mu.
 // Нужен для того, чтобы избежать двойного блокирования,
 // если EmitEvent вызывается изнутри других методов, которые уже держат блокировку.
 // emitEventLocked делает работу с EventLog и публикацией в bus.

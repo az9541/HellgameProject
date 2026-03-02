@@ -1,20 +1,25 @@
-package main
+package api
 
 import (
+	"HellgameProject/internal/engine"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
 )
 
-// registerHandlers регистрирует все HTTP endpoints
-func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
+type Handler struct {
+	Sim *engine.WorldSimulator
+}
+
+// RegisterHandlers регистрирует все HTTP endpoints
+func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/api/simulate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			respondError(w, "Method Not Allowed", "Use POST for this endpoint", http.StatusMethodNotAllowed)
 			return
 		}
-		handleSimulate(w, r, sim)
+		h.handleSimulate(w, r)
 	})
 
 	mux.HandleFunc("/api/world/state", func(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +27,7 @@ func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
 			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
 			return
 		}
-		handleGetWorldState(w, r, sim)
+		h.handleGetWorldState(w, r)
 	})
 
 	mux.HandleFunc("/api/world/events", func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +35,7 @@ func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
 			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
 			return
 		}
-		handleGetEvents(w, r, sim)
+		h.handleGetEvents(w, r)
 	})
 
 	mux.HandleFunc("/api/factions", func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +43,7 @@ func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
 			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
 			return
 		}
-		handleGetFactions(w, r, sim)
+		h.handleGetFactions(w, r)
 	})
 
 	mux.HandleFunc("/api/domains", func(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +51,7 @@ func registerHandlers(mux *http.ServeMux, sim *WorldSimulator) {
 			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
 			return
 		}
-		handleGetDomains(w, r, sim)
+		h.handleGetDomains(w, r)
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +72,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSimulate - основной endpoint для запуска симуляции
-func handleSimulate(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
+func (h *Handler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Hours int64 `json:"hours"`
 	}
@@ -84,7 +89,7 @@ func handleSimulate(w http.ResponseWriter, r *http.Request, sim *WorldSimulator)
 		req.Hours = 1000
 	}
 
-	delta := sim.Simulate(req.Hours)
+	delta := h.Sim.Simulate(req.Hours)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
@@ -100,22 +105,22 @@ func handleSimulate(w http.ResponseWriter, r *http.Request, sim *WorldSimulator)
 }
 
 // handleGetWorldState - получить текущее состояние мира
-func handleGetWorldState(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
-	sim.mu.RLock()
-	defer sim.mu.RUnlock()
+func (h *Handler) handleGetWorldState(w http.ResponseWriter, r *http.Request) {
+	h.Sim.Mu.RLock()
+	defer h.Sim.Mu.RUnlock()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":         "ok",
-		"time":           sim.State.GlobalTick,
-		"factions":       sim.copyFactionStates(),
-		"domains":        sim.copyDomainStates(),
-		"event_log_size": len(sim.State.EventLog),
-		"wars":           sim.copyWars(),
+		"time":           h.Sim.State.GlobalTick,
+		"factions":       h.Sim.CopyFactionStates(),
+		"domains":        h.Sim.CopyDomainStates(),
+		"event_log_size": len(h.Sim.State.EventLog),
+		"wars":           h.Sim.CopyWars(),
 	})
 }
 
 // handleGetEvents - получить события из лога
-func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
+func (h *Handler) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
 
@@ -125,11 +130,11 @@ func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator
 		}
 	}
 
-	sim.mu.RLock()
-	defer sim.mu.RUnlock()
+	h.Sim.Mu.RLock()
+	defer h.Sim.Mu.RUnlock()
 
-	var events []GameEvent
-	events = sim.State.EventLog
+	var events []engine.GameEvent
+	events = h.Sim.State.EventLog
 
 	// Return last N events
 	start := len(events) - limit
@@ -149,24 +154,24 @@ func handleGetEvents(w http.ResponseWriter, r *http.Request, sim *WorldSimulator
 }
 
 // handleGetFactions - получить состояние всех фракций
-func handleGetFactions(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
-	sim.mu.RLock()
-	defer sim.mu.RUnlock()
+func (h *Handler) handleGetFactions(w http.ResponseWriter, r *http.Request) {
+	h.Sim.Mu.RLock()
+	defer h.Sim.Mu.RUnlock()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":   "ok",
-		"factions": sim.copyFactionStates(),
+		"factions": h.Sim.CopyFactionStates(),
 	})
 }
 
 // handleGetDomains - получить состояние всех доменов
-func handleGetDomains(w http.ResponseWriter, r *http.Request, sim *WorldSimulator) {
-	sim.mu.RLock()
-	defer sim.mu.RUnlock()
+func (h *Handler) handleGetDomains(w http.ResponseWriter, r *http.Request) {
+	h.Sim.Mu.RLock()
+	defer h.Sim.Mu.RUnlock()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
-		"domains": sim.copyDomainStates(),
+		"domains": h.Sim.CopyDomainStates(),
 	})
 }
 
@@ -191,7 +196,7 @@ func respondError(w http.ResponseWriter, title, message string, status int) {
 	log.Printf("❌ %s: %s", title, message)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func CorsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")

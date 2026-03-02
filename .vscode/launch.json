@@ -5,18 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run Server (Random)",
-            "type": "go",
+            "name": "Debug Simulation",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}"
+            "program": "${workspaceFolder}/cmd/server",
+            "args": []
         },
         {
             "name": "Run Server (Deterministic seed)",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}",
+            "program": "${workspaceFolder}/cmd/server",
             "args": [
                 "--deterministic",
                 "--seed",
@@ -28,7 +28,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}",
+            "program": "${workspaceFolder}/cmd/server",
             "args": [
                 "--mock-topology"
             ]
@@ -38,7 +38,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}",
+            "program": "${workspaceFolder}/cmd/batch",
             "args": [
                 "--batch-seeds",
                 "1:150",

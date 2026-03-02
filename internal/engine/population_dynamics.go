@@ -1,4 +1,4 @@
-package main
+package engine
 
 // Вычисляем скалярное поле потенциала. Зависит с одной стороны от стабильности, с другой - от опасности.
 func (domain *DomainState) calculateMigrationPotential() (migrationPotential float64) {
@@ -17,7 +17,7 @@ func (sim *WorldSimulator) UpdateDomainPopulation() {
 
 	// 1. Получаем снапшот доменов
 	// Это нужно, чтобы расчеты (dP/dt) зависели только от состояния на начало тика (t),.
-	snapshot := sim.copyDomainStates()
+	snapshot := sim.CopyDomainStates()
 
 	// Массив для накопления изменений населения (dP/dt)
 	deltas := make(map[string]float64)

@@ -1,6 +1,6 @@
-package main
+package engine
 
-func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
+func (sim *WorldSimulator) CopyFactionStates() map[string]*FactionState {
 	result := make(map[string]*FactionState)
 	for id, faction := range sim.State.Factions {
 		// Копируем DomainsHeld
@@ -29,8 +29,8 @@ func (sim *WorldSimulator) copyFactionStates() map[string]*FactionState {
 	return result
 }
 
-// copyDomainStates создаёт глубокую копию состояний всех доменов
-func (sim *WorldSimulator) copyDomainStates() map[string]*DomainState {
+// CopyDomainStates создаёт глубокую копию состояний всех доменов
+func (sim *WorldSimulator) CopyDomainStates() map[string]*DomainState {
 	result := make(map[string]*DomainState)
 	for id, domain := range sim.State.Domains {
 		// Копируем Influence
@@ -64,8 +64,8 @@ func (sim *WorldSimulator) copyDomainStates() map[string]*DomainState {
 	return result
 }
 
-// copyWars создаёт глубокую копию всех войн
-func (sim *WorldSimulator) copyWars() map[string]*WarState {
+// CopyWars создаёт глубокую копию всех войн
+func (sim *WorldSimulator) CopyWars() map[string]*WarState {
 	result := make(map[string]*WarState)
 	for id, war := range sim.State.Wars {
 		// Копируем WinnersID и LosersID

@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"log"
@@ -11,7 +11,7 @@ import (
 type WorldSimulator struct {
 	// State
 	State *WorldState
-	mu    sync.RWMutex
+	Mu    sync.RWMutex
 	// Channels for goroutines
 	stop     chan bool
 	EventBus *EventPublisher
@@ -191,8 +191,8 @@ func (sim *WorldSimulator) Stop() {
 }
 
 func (sim *WorldSimulator) Tick() {
-	defer sim.mu.Unlock()
-	sim.mu.Lock()
+	defer sim.Mu.Unlock()
+	sim.Mu.Lock()
 	sim.runKPPSimulation()
 	if sim.State.GlobalTick%6 == 0 {
 		sim.executeFactionActions()
@@ -217,9 +217,9 @@ func (sim *WorldSimulator) Tick() {
 
 // Simulate запускает симуляцию на N часов
 func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
-	sim.mu.RLock()
+	sim.Mu.RLock()
 	startTime := sim.State.GlobalTick
-	sim.mu.RUnlock()
+	sim.Mu.RUnlock()
 	endTime := startTime + ticks
 
 	for tick := startTime; tick < endTime; tick++ {
@@ -227,16 +227,16 @@ func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
 	}
 
 	// Return delta (only changes)
-	sim.mu.RLock()
+	sim.Mu.RLock()
 	delta := &SimulationDelta{
 		TicksSimulated: ticks,
 		Events:         sim.copyEventLog(),
-		FactionStates:  sim.copyFactionStates(),
-		DomainStates:   sim.copyDomainStates(),
+		FactionStates:  sim.CopyFactionStates(),
+		DomainStates:   sim.CopyDomainStates(),
 		GlobalTick:     sim.State.GlobalTick,
 	}
 	completionTick := sim.State.GlobalTick
-	sim.mu.RUnlock()
+	sim.Mu.RUnlock()
 
 	sim.EmitEvent(GameEvent{
 		Type:      "SIMULATION_COMPLETED",

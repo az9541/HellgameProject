@@ -1,4 +1,4 @@
-package main
+package engine
 
 // buildNeighborsFromDomains конвертирует список доменов с явно определёнными
 // AdjacentDomains в список смежности для KPP-уравнения.

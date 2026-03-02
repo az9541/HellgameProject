@@ -1,0 +1,6 @@
+server
+go.mod
+batch
+backend
+.github/copilot-instructions.md
+out/seeds_1_150.csv
