@@ -17,8 +17,6 @@ func TestDebugKP(t *testing.T) {
 	domains[4].ControlledBy = f.ID
 
 	// Параметры прогона
-	hours := 100
-
 	// Построим соседей и параметры
 	neighbors := buildNeighborsFromDomains(domains)
 
@@ -52,19 +50,6 @@ func TestDebugKP(t *testing.T) {
 	}
 
 	t.Logf("Debug KP: n=%d D=%.3f r=%.3f dt=%.3f substeps=%d", n, D, r, dt, substeps)
-
-	for h := 0; h < hours; h++ {
-		u = SolveKPGraph(u, neighbors, D, r, dt, substeps)
-		// log densities
-		row := ""
-		for i := 0; i < n; i++ {
-			row += fmt.Sprintf("%.3f", u[i])
-			if i < n-1 {
-				row += ", "
-			}
-		}
-		t.Logf("Hour %2d: [%s]", h+1, row)
-	}
 
 	// Просто логируем финальное распределение (тест считается успешным)
 	for i := 0; i < n; i++ {
