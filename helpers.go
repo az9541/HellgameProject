@@ -47,6 +47,12 @@ func clamp(x, minV, maxV float64) float64 {
 	return x
 }
 
+// lerp линейно интерполирует между a и b по параметру t ∈ [0,1].
+// t=0 → a, t=1 → b.
+func lerp(a, b, t float64) float64 {
+	return a + t*(b-a)
+}
+
 func makeLog(forceRatio float64) float64 {
 	forceFactor := math.Log(forceRatio)
 	if forceFactor > 1 {
@@ -110,4 +116,52 @@ func makeFactionStatesSnapshot(factions map[string]*FactionState) map[string]Fac
 		snapshot[faction.ID] = *faction.Clone()
 	}
 	return snapshot
+}
+
+func calculatePoplationScale(domain *DomainState, medianPopulation float64) (popScale float64) {
+	// Считаем общую популяцию везде
+	popScale = 0.0
+	if domain.Population > 0 {
+		popScale = clamp(medianPopulation/float64(domain.Population), 0.1, 2.0)
+	}
+	return popScale
+}
+
+func calculateMedianPopulation(domains []*DomainState) float64 {
+	totalPopulation := 0.0
+	for _, d := range domains {
+		totalPopulation += float64(d.Population)
+	}
+	return totalPopulation / float64(len(domains))
+}
+
+func (sim *WorldSimulator) calcDomainImportanceForFaction(domain *DomainState, faction *FactionState) float64 {
+	if len(faction.DomainsHeld) == 0 {
+		return 1.0 // Нет доменов — нечего считать, максимальная важность
+	}
+	survivalFactor := 1.0 / float64(len(faction.DomainsHeld))
+
+	overallFactionResources := 0.0
+	for _, dID := range faction.DomainsHeld {
+		if d, ok := sim.State.Domains[dID]; ok {
+			overallFactionResources += d.Resources
+		}
+	}
+	resFactor := 0.0
+	if overallFactionResources > 0 {
+		resFactor = domain.Resources / overallFactionResources
+	}
+
+	overallFactionPopulation := 0.0
+	for _, dID := range faction.DomainsHeld {
+		if d, ok := sim.State.Domains[dID]; ok {
+			overallFactionPopulation += float64(d.Population)
+		}
+	}
+	popFactor := 0.0
+	if overallFactionPopulation > 0 {
+		popFactor = float64(domain.Population) / overallFactionPopulation
+	}
+
+	return DomainImportanceSurvivalWeight*survivalFactor + DomainImportanceResourcesWeight*resFactor + DomainImportancePopulationWeight*popFactor
 }

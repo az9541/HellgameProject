@@ -27,8 +27,22 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		// TODO!!! Учесть эффекты корректно. Не просто обновлять curvedEffect для одной фракции.
 		curvedEffect := 1.0
 		for _, effect := range activeEffects {
-			effectCoefficient := float64(sim.State.GlobalTick-effect.StartTick) / float64(effect.Duration)
-			curvedEffect = 1 - effect.BasePenalty*math.Pow(10, -effect.DecayRate*effectCoefficient)
+			switch effect.EffectType {
+			case EffectTypeStabilityPenalty:
+				effectCoefficient := float64(sim.State.GlobalTick-effect.StartTick) / float64(effect.Duration)
+				curvedEffect = 1 - effect.BasePenalty*math.Pow(10, -effect.DecayRate*effectCoefficient)
+			case EffectTypeStabilityBonus:
+				// Добавим бонус к восстановлению стабильности
+			case EffectTypeResourceBonus:
+				// Добавим эффект к восстановлению ресурсов
+			case EffectTypeDangerBoost:
+				// Добавим эффект к уровню опасности
+			case EffectTypeDangerReduction:
+				// Добавим эффект к снижению уровня опасности
+			case EffectTypePopulationChange:
+				// Добавим эффект к изменению популяции
+			}
+
 		}
 		// Модификатор владельца домена
 		switch domain.ControlledBy {
@@ -45,13 +59,13 @@ func (sim *WorldSimulator) UpdateDomainStability() {
 		// Модификатор популяции
 		switch {
 		case domain.Population >= 6000:
-			stabilityRegenModifier *= 0.85
-		case domain.Population >= 4000:
-			stabilityRegenModifier *= 0.92
-		case domain.Population >= 2000:
-			stabilityRegenModifier *= 0.93
-		case domain.Population >= 1000:
 			stabilityRegenModifier *= 0.95
+		case domain.Population >= 4000:
+			stabilityRegenModifier *= 0.96
+		case domain.Population >= 2000:
+			stabilityRegenModifier *= 0.97
+		case domain.Population >= 1000:
+			stabilityRegenModifier *= 0.98
 		default:
 			stabilityRegenModifier *= 1.0
 		}

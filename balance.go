@@ -17,7 +17,7 @@ type KPPParameters struct {
 
 func NewKPPParameters(faction *FactionState) KPPParameters {
 	return KPPParameters{
-		Diffusion: minFloat(KPPMaxDiffusion, KPPDiffusionBaseRate+KPPDiffusionPowerFactor*(faction.Power/100.0)),
+		Diffusion: minFloat(KPPMaxDiffusion, KPPDiffusionBaseRate+KPPDiffusionPowerFactor*faction.WealthIndex),
 		Growth:    minFloat(KPPMaxGrowth, KPPGrowthBaseRate+KPPGrowthTerritoryFactor*(faction.Territory/5.0)),
 	}
 }
@@ -35,9 +35,10 @@ const (
 	WarResourceRetreatThreshold = 5.0  // Порог ресурсов, при котором фракция отступает
 
 	// --- Пороги отступления и капитуляции ---
-	WarRetreatLossThreshold   = 0.50 // Отступление при потере 50% контингента
-	WarSurrenderLossThreshold = 0.70 // Капитуляция при потере 70% контингента
-	WarCriticalForceRatio     = 0.33 // Критическое соотношение сил 1:3
+	WarRetreatLossThreshold         = 0.50 // Отступление при потере 50% контингента
+	WarSurrenderLossThreshold       = 0.70 // Капитуляция при потере 70% контингента
+	WarCriticalForceRatio           = 0.33 // Критическое соотношение сил 1:3
+	WarDefenderRetreatLossThreshold = 0.45 // Стратегический отход: чуть раньше, чем атакующий отступит
 
 	// --- Пороги морали ---
 	WarSurrenderMoraleThreshold       = 10.0 // Мораль защитника → капитуляция
@@ -103,4 +104,11 @@ const (
 	// Веса для расчета потенциала домена (U)
 	PopPotentialStabilityWeight = 1.0
 	PopPotentialDangerWeight    = 10.0
+)
+
+// Константы для вычисления значимости домена для фракции
+const (
+	DomainImportanceSurvivalWeight   = 0.7 // Вес выживаемости в значимости домена
+	DomainImportanceResourcesWeight  = 0.5 // Вес ресурсов в значимости домена
+	DomainImportancePopulationWeight = 0.3 // Вес населения в значимости домена
 )

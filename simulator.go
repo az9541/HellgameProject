@@ -25,6 +25,7 @@ type SimulationConfig struct {
 	DisableRandomEvents bool
 	DisableBackground   bool
 	DisableKPPTickLogs  bool
+	UseMockTopology     bool // Флаг для генерации 50 абстрактных доменов (территорий)
 }
 
 // FactionState отслеживает состояние фракции
@@ -97,10 +98,21 @@ type WorldState struct {
 	GlobalTick   int64
 	EventLog     []GameEvent
 }
+type DomainEffectType string
+
+const (
+	EffectTypeStabilityPenalty DomainEffectType = "stability_penalty"
+	EffectTypeStabilityBonus   DomainEffectType = "stability_bonus"
+	EffectTypeResourceBonus    DomainEffectType = "resource_bonus"
+	EffectTypeDangerBoost      DomainEffectType = "danger_boost"
+	EffectTypeDangerReduction  DomainEffectType = "danger_reduction"
+	EffectTypePopulationChange DomainEffectType = "population_change"
+)
 
 type DomainTimedEffect struct {
 	DomainID    string
 	FactionID   string
+	EffectType  DomainEffectType
 	StartTick   int64
 	Duration    int64
 	BasePenalty float64
@@ -127,9 +139,19 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 		rand.Seed(time.Now().UnixNano())
 	}
 
-	domains, _ := createInitialDomains()
+	var domains map[string]*DomainState
+	var factions map[string]*FactionState
+
+	if cfg.UseMockTopology {
+		factions = createMockFactions()
+		domains, _ = createMockDomains(factions)
+	} else {
+		factions = createInitialFactions()
+		domains, _ = createInitialDomains()
+	}
+
 	state := &WorldState{
-		Factions:   createInitialFactions(),
+		Factions:   factions,
 		Domains:    domains,
 		Wars:       make(map[string]*WarState),
 		GlobalTick: 0,
