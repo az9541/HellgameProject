@@ -14,6 +14,7 @@ func main() {
 	batchSeeds := flag.String("batch-seeds", "", "seed range for batch mode (N or A:B)")
 	batchTicks := flag.Int64("batch-ticks", 200, "ticks per run in batch mode")
 	batchOut := flag.String("batch-out", "", "output CSV path for batch mode")
+	mockTopology := flag.Bool("mock-topology", false, "use 50-domain mock topology instead of 9 circles")
 	flag.Parse()
 
 	if strings.TrimSpace(*batchSeeds) != "" || strings.TrimSpace(*batchOut) != "" {
@@ -37,7 +38,9 @@ func main() {
 		return
 	}
 
-	simCfg := SimulationConfig{}
+	simCfg := SimulationConfig{
+		UseMockTopology: *mockTopology,
+	}
 	if *deterministic {
 		simCfg.Deterministic = true
 		simCfg.Seed = *seed

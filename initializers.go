@@ -1,6 +1,9 @@
 package main
 
-import "math/rand"
+import (
+	"fmt"
+	"math/rand"
+)
 
 // createInitialFactions создаёт начальные фракции мира
 func createInitialFactions() map[string]*FactionState {
@@ -9,18 +12,18 @@ func createInitialFactions() map[string]*FactionState {
 			ID:             FactionCorporateConsortium,
 			Name:           "Corporate Consortium",
 			Power:          70,
-			Territory:      3.5,
+			Territory:      1.0,
 			DomainsHeld:    []string{DomainGreed},
 			Attitude:       make(map[string]float64),
 			Resources:      80,
-			MilitaryForce:  75,
+			MilitaryForce:  70,
 			LastActionTime: 0,
 		},
 		FactionRepentantCommunes: {
 			ID:             FactionRepentantCommunes,
 			Name:           "Repentant Communes",
 			Power:          50,
-			Territory:      1.8,
+			Territory:      1.0,
 			DomainsHeld:    []string{DomainGluttony},
 			Attitude:       make(map[string]float64),
 			Resources:      40,
@@ -31,18 +34,18 @@ func createInitialFactions() map[string]*FactionState {
 			ID:             FactionNeoTormentors,
 			Name:           "Neo-Tormentors",
 			Power:          65,
-			Territory:      2.5,
+			Territory:      1.0,
 			DomainsHeld:    []string{DomainViolence},
 			Attitude:       make(map[string]float64),
 			Resources:      70,
-			MilitaryForce:  85,
+			MilitaryForce:  80,
 			LastActionTime: 0,
 		},
 		FactionCaravanGuilds: {
 			ID:             FactionCaravanGuilds,
 			Name:           "Caravan Guilds",
 			Power:          45,
-			Territory:      0.9,
+			Territory:      1.0,
 			DomainsHeld:    []string{DomainLimbo},
 			Attitude:       make(map[string]float64),
 			Resources:      60,
@@ -53,7 +56,7 @@ func createInitialFactions() map[string]*FactionState {
 			ID:             FactionAncientRemnants,
 			Name:           "Ancient Remnants",
 			Power:          30,
-			Territory:      0.3,
+			Territory:      1.0,
 			DomainsHeld:    []string{DomainHeresy},
 			Attitude:       make(map[string]float64),
 			Resources:      50,
@@ -194,7 +197,7 @@ func createInitialDomains() (map[string]*DomainState, []string) {
 		DomainViolence: {
 			ID:           DomainViolence,
 			Name:         "Circle of Violence",
-			Stability:    45,
+			Stability:    40,
 			ControlledBy: FactionNeoTormentors,
 			DangerLevel:  4,
 			Population:   6000,
@@ -217,7 +220,7 @@ func createInitialDomains() (map[string]*DomainState, []string) {
 			Stability:    10,
 			ControlledBy: FactionNone,
 			DangerLevel:  10,
-			Population:   500,
+			Population:   2500,
 			Mood:         "despairing",
 			Influence:    make(map[string]float64),
 		},
@@ -237,6 +240,62 @@ func createInitialDomains() (map[string]*DomainState, []string) {
 	}
 
 	// Генерируем случайную топологию графа
+	generateDomainTopology(domains, allDomainIDs)
+
+	return domains, allDomainIDs
+}
+
+func createMockFactions() map[string]*FactionState {
+	factions := createInitialFactions()
+	for _, f := range factions {
+		f.DomainsHeld = make([]string, 0)
+	}
+	return factions
+}
+
+func createMockDomains(factions map[string]*FactionState) (map[string]*DomainState, []string) {
+	domains := make(map[string]*DomainState)
+	numDomains := 50
+	allDomainIDs := make([]string, numDomains)
+
+	factionList := make([]*FactionState, 0)
+	for _, f := range factions {
+		factionList = append(factionList, f)
+	}
+
+	for i := 0; i < numDomains; i++ {
+		id := fmt.Sprintf("sector_%d", i)
+		allDomainIDs[i] = id
+
+		pop := 500 + rand.Intn(9500)
+
+		domains[id] = &DomainState{
+			ID:              id,
+			Name:            fmt.Sprintf("Wasteland %d", i),
+			Stability:       float64(20 + rand.Intn(60)),
+			ControlledBy:    FactionNone,
+			DangerLevel:     float64(rand.Intn(8) + 1),
+			Population:      pop,
+			Influence:       make(map[string]float64),
+			AdjacentDomains: make([]string, 0),
+			Resources:       float64(10 + rand.Intn(50)),
+		}
+	}
+
+	for _, faction := range factionList {
+		startNodeIdx := rand.Intn(numDomains)
+		for k := 0; k < 3; k++ {
+			idx := (startNodeIdx + k) % numDomains
+			domainID := allDomainIDs[idx]
+
+			domains[domainID].ControlledBy = faction.ID
+			domains[domainID].Name = fmt.Sprintf("%s Core %d", faction.Name, k+1)
+			domains[domainID].Population += 10000
+
+			faction.DomainsHeld = append(faction.DomainsHeld, domainID)
+		}
+	}
+
 	generateDomainTopology(domains, allDomainIDs)
 
 	return domains, allDomainIDs

@@ -43,14 +43,4 @@ const (
 	// Диффузия и KPP-уравнение
 	DiffusionThreshold = 0.25 // Минимальное влияние для диффузии
 
-	// War constants
-	//MinAttackStrengthRatio = 0.65  // Минимальное соотношение силы атакующего к защитнику (65%)
-	WarResourceCost = 5.0  // Стоимость войны в ресурсах
-	BasePowerGain   = 10.0 // Базовое изменение power при победе
-	BasePowerLoss   = 8.0  // Базовое изменение power при поражении
-	//MaxMilitaryForce       = 100.0 // Максимальная военная сила фракции
-	// Константы длительной войны
-	DefenderSurrenderThreshold = 20.0
-	AttackerRetreatThreshold   = 15.0
-	MoraleChangeFactor         = 0.5
 )
