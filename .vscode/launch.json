@@ -24,6 +24,16 @@
             ]
         },
         {
+            "name": "Run Server (Mock Topology 50 Nodes)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "args": [
+                "--mock-topology"
+            ]
+        },
+        {
             "name": "Run Seed Batch (1:150, 1000 ticks)",
             "type": "go",
             "request": "launch",
