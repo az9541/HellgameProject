@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"sync"
@@ -170,7 +171,7 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 }
 
 // Start запускает фоновые горутины симуляции
-func (sim *WorldSimulator) Start() {
+func (sim *WorldSimulator) Start(ctx context.Context) {
 	if sim.cfg.DisableBackground {
 		log.Println("🔒 Background simulation loop disabled by config")
 		return
@@ -186,8 +187,13 @@ func (sim *WorldSimulator) Start() {
 
 // Stop останавливает симуляцию
 func (sim *WorldSimulator) Stop() {
-	sim.stop <- true
-	log.Println("Simulation stopped")
+	close(sim.stop)
+	sim.Mu.Lock()
+	defer sim.Mu.Unlock()
+	log.Println("Якобы что-то делаем и сохраняем состояние мира... (пока просто ждем 5 секунд)")
+	time.Sleep(5 * time.Second)
+	log.Println("Симуляция остановлена, состояние мира сохранено (ну почти)")
+
 }
 
 func (sim *WorldSimulator) Tick() {
@@ -263,6 +269,7 @@ func (sim *WorldSimulator) runTimeLoop() {
 	for {
 		select {
 		case <-sim.stop:
+			log.Println("Received stop signal, stopping time loop...")
 			return
 		case <-ticker.C:
 			sim.Tick()

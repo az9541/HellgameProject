@@ -14,53 +14,17 @@ type Handler struct {
 
 // RegisterHandlers регистрирует все HTTP endpoints
 func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/api/simulate", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			respondError(w, "Method Not Allowed", "Use POST for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		h.handleSimulate(w, r)
-	})
+	mux.HandleFunc("POST /api/simulate", h.handleSimulate)
 
-	mux.HandleFunc("/api/world/state", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		h.handleGetWorldState(w, r)
-	})
+	mux.HandleFunc("GET /api/world/state", h.handleGetWorldState)
 
-	mux.HandleFunc("/api/world/events", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		h.handleGetEvents(w, r)
-	})
+	mux.HandleFunc("GET /api/world/events", h.handleGetEvents)
 
-	mux.HandleFunc("/api/factions", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		h.handleGetFactions(w, r)
-	})
+	mux.HandleFunc("GET /api/factions", h.handleGetFactions)
 
-	mux.HandleFunc("/api/domains", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		h.handleGetDomains(w, r)
-	})
+	mux.HandleFunc("GET /api/domains", h.handleGetDomains)
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondError(w, "Method Not Allowed", "Use GET for this endpoint", http.StatusMethodNotAllowed)
-			return
-		}
-		handleHealth(w, r)
-	})
+	mux.HandleFunc("GET /health", handleHealth)
 }
 
 // ============ HANDLERS ============
@@ -109,7 +73,7 @@ func (h *Handler) handleGetWorldState(w http.ResponseWriter, r *http.Request) {
 	h.Sim.Mu.RLock()
 	defer h.Sim.Mu.RUnlock()
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	respondJSON(w, http.StatusOK, map[string]any{
 		"status":         "ok",
 		"time":           h.Sim.State.GlobalTick,
 		"factions":       h.Sim.CopyFactionStates(),
@@ -146,7 +110,7 @@ func (h *Handler) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		events = events[start:]
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	respondJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"count":  len(events),
 		"events": events,
@@ -158,7 +122,7 @@ func (h *Handler) handleGetFactions(w http.ResponseWriter, r *http.Request) {
 	h.Sim.Mu.RLock()
 	defer h.Sim.Mu.RUnlock()
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	respondJSON(w, http.StatusOK, map[string]any{
 		"status":   "ok",
 		"factions": h.Sim.CopyFactionStates(),
 	})
@@ -169,7 +133,7 @@ func (h *Handler) handleGetDomains(w http.ResponseWriter, r *http.Request) {
 	h.Sim.Mu.RLock()
 	defer h.Sim.Mu.RUnlock()
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	respondJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"domains": h.Sim.CopyDomainStates(),
 	})
@@ -177,7 +141,7 @@ func (h *Handler) handleGetDomains(w http.ResponseWriter, r *http.Request) {
 
 // ============ RESPONSE HELPERS ============
 
-func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+func respondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
