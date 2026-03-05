@@ -6,25 +6,47 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 type Handler struct {
 	Sim *engine.WorldSimulator
 }
 
-// RegisterHandlers регистрирует все HTTP endpoints
-func (h *Handler) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/simulate", h.handleSimulate)
+func (h *Handler) NewRouter() http.Handler {
+	r := chi.NewRouter()
+	// Подключаем базовые middleware
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type"},
+		ExposedHeaders: []string{},
+	}))
 
-	mux.HandleFunc("GET /api/world/state", h.handleGetWorldState)
+	// Прерываем чрезвычайно долгие запросы
+	r.Use(middleware.Timeout(30 * time.Second))
 
-	mux.HandleFunc("GET /api/world/events", h.handleGetEvents)
+	// Регистрируем эндпоинты
+	r.Get("/health", handleHealth)
+	r.Route("/api", func(r chi.Router) {
+		r.Post("/simulate", h.handleSimulate)
+		r.Get("/factions", h.handleGetFactions)
+		r.Get("/domains", h.handleGetDomains)
 
-	mux.HandleFunc("GET /api/factions", h.handleGetFactions)
-
-	mux.HandleFunc("GET /api/domains", h.handleGetDomains)
-
-	mux.HandleFunc("GET /health", handleHealth)
+		r.Route("/world", func(r chi.Router) {
+			r.Get("/state", h.handleGetWorldState)
+			r.Get("/events", h.handleGetEvents)
+		})
+	})
+	return r
 }
 
 // ============ HANDLERS ============
@@ -42,7 +64,7 @@ func (h *Handler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "Invalid request", err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -65,7 +87,7 @@ func (h *Handler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		"domains":         delta.DomainStates,
 	})
 
-	log.Printf("✅ Simulated %d ticks, generated %d events", req.Hours, len(delta.Events))
+	log.Printf("Simulated %d ticks, generated %d events", req.Hours, len(delta.Events))
 }
 
 // handleGetWorldState - получить текущее состояние мира
@@ -136,41 +158,5 @@ func (h *Handler) handleGetDomains(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"domains": h.Sim.CopyDomainStates(),
-	})
-}
-
-// ============ RESPONSE HELPERS ============
-
-func respondJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("❌ Error encoding response: %v", err)
-	}
-}
-
-func respondError(w http.ResponseWriter, title, message string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "error",
-		"error":   title,
-		"message": message,
-	})
-	log.Printf("❌ %s: %s", title, message)
-}
-
-func CorsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
 	})
 }
