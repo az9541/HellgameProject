@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 )
 
@@ -152,7 +152,11 @@ func StartEventLogger(bus *EventPublisher, buffer int) {
 	ch := bus.Subscribe(buffer)
 	go func() {
 		for event := range ch {
-			log.Printf("EVENT=%s tick=%d data=%+v", event.Type, event.Tick, event.EventData)
+			slog.Info("EVENT",
+				"event_type", event.Type,
+				"tick", event.Tick,
+				"data", event.EventData,
+			)
 		}
 	}()
 }

@@ -2,7 +2,7 @@ package engine
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"sort"
 )
@@ -62,8 +62,11 @@ func (sim *WorldSimulator) runKPPSimulation() {
 					row += ", "
 				}
 			}
-			log.Printf("EXPANSION_DENSITIES_COUPLED faction=%q tick=%d densities=[%s]",
-				factionID, sim.State.GlobalTick, row)
+			slog.Info("EXPANSION_DENSITIES_COUPLED",
+				"faction", factionID,
+				"tick", sim.State.GlobalTick,
+				"densities", row,
+			)
 		}
 	}
 }
