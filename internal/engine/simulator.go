@@ -14,9 +14,10 @@ type WorldSimulator struct {
 	State *WorldState
 	Mu    sync.RWMutex
 	// Channels for goroutines
-	stop     chan bool
+	stop     chan struct{}
 	EventBus *EventPublisher
 	cfg      SimulationConfig
+	Metrics  MetricsCollector
 }
 
 // SimulationConfig позволяет запускать симуляцию в повторяемом режиме для отладки.
@@ -27,6 +28,7 @@ type SimulationConfig struct {
 	DisableBackground   bool
 	DisableKPPTickLogs  bool
 	UseMockTopology     bool // Флаг для генерации 50 абстрактных доменов (территорий)
+	Metrics             MetricsCollector
 }
 
 // FactionState отслеживает состояние фракции
@@ -127,6 +129,10 @@ func NewWorldSimulator() *WorldSimulator {
 
 // NewWorldSimulatorWithConfig создаёт симулятор с настраиваемым режимом.
 func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
+	if cfg.Metrics == nil {
+		cfg.Metrics = &NoopMetricsCollector{}
+	}
+
 	if cfg.Deterministic {
 		if cfg.Seed == 0 {
 			cfg.Seed = 1
@@ -135,9 +141,9 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 		cfg.DisableRandomEvents = true
 		cfg.DisableBackground = true
 		cfg.DisableKPPTickLogs = true
-		rand.Seed(cfg.Seed)
+		rand.NewSource(cfg.Seed)
 	} else {
-		rand.Seed(time.Now().UnixNano())
+		rand.NewSource(time.Now().UnixNano())
 	}
 
 	var domains map[string]*DomainState
@@ -162,7 +168,7 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 
 	sim := &WorldSimulator{
 		State:    state,
-		stop:     make(chan bool),
+		stop:     make(chan struct{}),
 		EventBus: NewEventPublisher(),
 		cfg:      cfg,
 	}
@@ -197,6 +203,7 @@ func (sim *WorldSimulator) Stop() {
 }
 
 func (sim *WorldSimulator) Tick() {
+	defer MeasureTime(sim.cfg.Metrics.SetTickDuration)()
 	defer sim.Mu.Unlock()
 	sim.Mu.Lock()
 	sim.runKPPSimulation()

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"time"
 )
 
 const (
@@ -36,6 +37,7 @@ func (sim *WorldSimulator) initializeFactionInfluence() {
 }
 
 func (sim *WorldSimulator) runKPPSimulation() {
+	// defer MeasureTime(sim.cfg.Metrics.SetKolmogorovDuration)()
 	domainKeys := getSortedDomainKeys(sim.State.Domains)
 	domains := getDomainsList(domainKeys, sim.State.Domains)
 	if len(domains) == 0 || len(sim.State.Factions) == 0 {
@@ -150,6 +152,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				warMaskByDomain[d.ID] = sim.getActiveWarForDomain(d.ID) != nil
 			}
 
+			startKPP := time.Now()
 			state = applyKPPDiffusionStep(
 				state,
 				factionIDs,
@@ -159,7 +162,9 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
+			sim.cfg.Metrics.SetKolmogorovDuration(time.Since(startKPP))
 
+			startLV := time.Now()
 			state = applyLVReactionStep(
 				state,
 				factionIDs,
@@ -168,6 +173,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
+			sim.cfg.Metrics.SetLotkaVolterraDuration(time.Since(startLV))
 
 			state = applySourceStep(
 				state,
@@ -179,6 +185,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				warMaskByDomain,
 			)
 
+			startAdvection := time.Now()
 			state = applySpilloverStep(
 				state,
 				factionsSnapshot,
@@ -188,6 +195,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
+			sim.cfg.Metrics.SetDiffusionAdvectionDuration(time.Since(startAdvection))
 
 			clampInfluenceInPlace(state, factionIDs, domains, 0.0, 1.0)
 		}

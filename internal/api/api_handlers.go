@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Handler struct {
@@ -46,6 +48,8 @@ func (h *Handler) NewRouter() http.Handler {
 			r.Get("/events", h.handleGetEvents)
 		})
 	})
+	// Prometheus эндпоинт для метрик
+	r.Handle("/metrics", promhttp.Handler())
 	return r
 }
 
