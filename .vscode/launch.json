@@ -6,10 +6,12 @@
     "configurations": [
         {
             "name": "Debug Simulation",
+            "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/cmd/server",
-            "args": []
+            "args": [],
+            "env": { "CONFIG_PATH": "${workspaceFolder}/config.yaml" }
         },
         {
             "name": "Run Server (Deterministic seed)",
@@ -21,7 +23,8 @@
                 "--deterministic",
                 "--seed",
                 "7"
-            ]
+            ],
+            "env": { "CONFIG_PATH": "${workspaceFolder}/config.yaml" }
         },
         {
             "name": "Run Server (Mock Topology 50 Nodes)",
@@ -31,7 +34,8 @@
             "program": "${workspaceFolder}/cmd/server",
             "args": [
                 "--mock-topology"
-            ]
+            ],
+            "env": { "CONFIG_PATH": "${workspaceFolder}/config.yaml" }
         },
         {
             "name": "Run Seed Batch (1:150, 1000 ticks)",
@@ -46,7 +50,8 @@
                 "1000",
                 "--batch-out",
                 "${workspaceFolder}/out/seeds_1_150.csv"
-            ]
+            ],
+            "env": { "CONFIG_PATH": "${workspaceFolder}/config.yaml" }
         }
     ]
 }

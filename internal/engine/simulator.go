@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
@@ -16,19 +17,23 @@ type WorldSimulator struct {
 	// Channels for goroutines
 	stop     chan struct{}
 	EventBus *EventPublisher
-	cfg      SimulationConfig
+	opts     SimulationOptions
 	Metrics  MetricsCollector
+	Saver    StateSaver
 }
 
-// SimulationConfig позволяет запускать симуляцию в повторяемом режиме для отладки.
-type SimulationConfig struct {
+type SimulationOptions struct {
 	Deterministic       bool
 	Seed                int64
 	DisableRandomEvents bool
 	DisableBackground   bool
 	DisableKPPTickLogs  bool
-	UseMockTopology     bool // Флаг для генерации 50 абстрактных доменов (территорий)
-	Metrics             MetricsCollector
+	UseMockTopology     bool
+}
+
+type SimulationDeps struct {
+	MetricsCollector MetricsCollector
+	StateSaver       StateSaver
 }
 
 // FactionState отслеживает состояние фракции
@@ -124,24 +129,24 @@ type DomainTimedEffect struct {
 
 // NewWorldSimulator создаёт новый симулятор
 func NewWorldSimulator() *WorldSimulator {
-	return NewWorldSimulatorWithConfig(SimulationConfig{})
+	return NewWorldSimulatorWithConfig(SimulationOptions{}, SimulationDeps{})
 }
 
 // NewWorldSimulatorWithConfig создаёт симулятор с настраиваемым режимом.
-func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
-	if cfg.Metrics == nil {
-		cfg.Metrics = &NoopMetricsCollector{}
+func NewWorldSimulatorWithConfig(opts SimulationOptions, deps SimulationDeps) *WorldSimulator {
+	if deps.MetricsCollector == nil {
+		deps.MetricsCollector = &NoopMetricsCollector{}
 	}
 
-	if cfg.Deterministic {
-		if cfg.Seed == 0 {
-			cfg.Seed = 1
+	if opts.Deterministic {
+		if opts.Seed == 0 {
+			opts.Seed = 1
 		}
 		// В детерминированном режиме случайные world events и фоновый loop обычно мешают A/B отладке.
-		cfg.DisableRandomEvents = true
-		cfg.DisableBackground = true
-		cfg.DisableKPPTickLogs = true
-		rand.NewSource(cfg.Seed)
+		opts.DisableRandomEvents = true
+		opts.DisableBackground = true
+		opts.DisableKPPTickLogs = true
+		rand.NewSource(opts.Seed)
 	} else {
 		rand.NewSource(time.Now().UnixNano())
 	}
@@ -149,7 +154,7 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 	var domains map[string]*DomainState
 	var factions map[string]*FactionState
 
-	if cfg.UseMockTopology {
+	if opts.UseMockTopology {
 		factions = createMockFactions()
 		domains, _ = createMockDomains(factions)
 	} else {
@@ -170,7 +175,9 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 		State:    state,
 		stop:     make(chan struct{}),
 		EventBus: NewEventPublisher(),
-		cfg:      cfg,
+		Saver:    deps.StateSaver,
+		Metrics:  deps.MetricsCollector,
+		opts:     opts,
 	}
 	sim.initializeFactionInfluence()
 	return sim
@@ -178,7 +185,7 @@ func NewWorldSimulatorWithConfig(cfg SimulationConfig) *WorldSimulator {
 
 // Start запускает фоновые горутины симуляции
 func (sim *WorldSimulator) Start(ctx context.Context) {
-	if sim.cfg.DisableBackground {
+	if sim.opts.DisableBackground {
 		log.Println("🔒 Background simulation loop disabled by config")
 		return
 	}
@@ -196,14 +203,21 @@ func (sim *WorldSimulator) Stop() {
 	close(sim.stop)
 	sim.Mu.Lock()
 	defer sim.Mu.Unlock()
-	log.Println("Якобы что-то делаем и сохраняем состояние мира... (пока просто ждем 5 секунд)")
+	if sim.Saver != nil {
+		err := sim.Saver.Save(sim.State)
+		if err != nil {
+			slog.Error("Failed to save sim state", "err", err)
+		} else {
+			slog.Info("Sim state saved successfully")
+		}
+	}
 	time.Sleep(5 * time.Second)
-	log.Println("Симуляция остановлена, состояние мира сохранено (ну почти)")
+	slog.Info("Симуляция приостановлена")
 
 }
 
 func (sim *WorldSimulator) Tick() {
-	defer MeasureTime(sim.cfg.Metrics.SetTickDuration)()
+	defer MeasureTime(sim.Metrics.SetTickDuration)()
 	defer sim.Mu.Unlock()
 	sim.Mu.Lock()
 	sim.runKPPSimulation()
@@ -211,7 +225,7 @@ func (sim *WorldSimulator) Tick() {
 		sim.executeFactionActions()
 	}
 	// 3. Раз в 9 тиков (45 сек) происходят случайные события
-	if !sim.cfg.DisableRandomEvents && sim.State.GlobalTick%9 == 0 {
+	if !sim.opts.DisableRandomEvents && sim.State.GlobalTick%9 == 0 {
 		event := sim.generateTickEvent(sim.State.GlobalTick)
 		if event != nil {
 			sim.emitEventLocked(*event)

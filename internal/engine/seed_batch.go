@@ -109,9 +109,16 @@ func RunSeedBatch(cfg SeedBatchConfig) (int, error) {
 
 	runs := 0
 	for seed := cfg.SeedFrom; seed <= cfg.SeedTo; seed++ {
-		sim := NewWorldSimulatorWithConfig(SimulationConfig{
-			Deterministic: true,
-			Seed:          int64(seed),
+		sim := NewWorldSimulatorWithConfig(SimulationOptions{
+			Deterministic:       true,
+			Seed:                int64(seed),
+			UseMockTopology:     false,
+			DisableRandomEvents: true,
+			DisableBackground:   true,
+			DisableKPPTickLogs:  true,
+		}, SimulationDeps{
+			StateSaver:       nil,
+			MetricsCollector: &NoopMetricsCollector{},
 		})
 
 		sim.Simulate(cfg.Ticks)

@@ -33,19 +33,25 @@ func MustLoad(configPath string) *Config {
 	if configPath == "" {
 		configPath = os.Getenv("CONFIG_PATH")
 	}
+	if configPath == "" {
+		configPath = "config.yaml"
+	}
 
 	instance = &Config{}
 
 	if configPath != "" {
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			slog.Error("config file does not exist: ", "path", configPath)
+			slog.Error("config file does not exist", "path", configPath)
+			os.Exit(1)
 		}
 		if err := cleanenv.ReadConfig(configPath, instance); err != nil {
-			slog.Error("failed to read config file: ", "path", configPath, "err", err)
+			slog.Error("failed to read config file", "path", configPath, "err", err)
+			os.Exit(1)
 		}
 	} else {
 		if err := cleanenv.ReadEnv(instance); err != nil {
-			slog.Error("failed to read config from environment variables: ", "err", err)
+			slog.Error("failed to read config from environment variables", "err", err)
+			os.Exit(1)
 		}
 	}
 	return instance

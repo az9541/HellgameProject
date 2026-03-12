@@ -1,0 +1,9 @@
+server:
+  port: "8080"
+logger:
+  is_dev: true
+simulation:
+  deterministic: false
+  seed: 42
+  use_mock_topology: false
+  enable_metrics: true

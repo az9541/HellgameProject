@@ -55,7 +55,7 @@ func (sim *WorldSimulator) runKPPSimulation() {
 		capDomainInfluence(domain.Influence)
 	}
 
-	if !sim.cfg.DisableKPPTickLogs { // Отключем спам логов KPP при батчевом дебаге
+	if !sim.opts.DisableKPPTickLogs { // Отключем спам логов KPP при батчевом дебаге
 		for _, factionID := range factionIDs {
 			row := ""
 			for i := range domains {
@@ -162,7 +162,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
-			sim.cfg.Metrics.SetKolmogorovDuration(time.Since(startKPP))
+			sim.Metrics.SetKolmogorovDuration(time.Since(startKPP))
 
 			startLV := time.Now()
 			state = applyLVReactionStep(
@@ -173,7 +173,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
-			sim.cfg.Metrics.SetLotkaVolterraDuration(time.Since(startLV))
+			sim.Metrics.SetLotkaVolterraDuration(time.Since(startLV))
 
 			state = applySourceStep(
 				state,
@@ -195,7 +195,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 				dtSub,
 				warMaskByDomain,
 			)
-			sim.cfg.Metrics.SetDiffusionAdvectionDuration(time.Since(startAdvection))
+			sim.Metrics.SetDiffusionAdvectionDuration(time.Since(startAdvection))
 
 			clampInfluenceInPlace(state, factionIDs, domains, 0.0, 1.0)
 		}
