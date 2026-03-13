@@ -7,3 +7,4 @@ simulation:
   seed: 42
   use_mock_topology: false
   enable_metrics: true
+  load_from_save: true
