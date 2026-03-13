@@ -24,6 +24,7 @@ type Config struct {
 		Seed            int64 `yaml:"seed" env:"SIMULATION_SEED" env-default:"1"`
 		UseMockTopology bool  `yaml:"use_mock_topology" env:"SIMULATION_USE_MOCK_TOPOLOGY" env-default:"false"`
 		EnableMetrics   bool  `yaml:"enable_metrics" env:"SIMULATION_ENABLE_METRICS" env-default:"false"`
+		LoadFromSave    bool  `yaml:"load_from_save" env:"SIMULATION_LOAD_FROM_SAVE" env-default:"false"`
 	} `yaml:"simulation"`
 }
 
