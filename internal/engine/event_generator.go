@@ -149,13 +149,3 @@ func (sim *WorldSimulator) generateDangerEvent(tick int64) *GameEvent {
 		},
 	}
 }
-
-// generateID генерирует уникальный ID для события
-func generateID() string {
-	chars := "abcdefghijklmnopqrstuvwxyz"
-	id := "evt_"
-	for i := 0; i < 3; i++ {
-		id += string(chars[rand.Intn(len(chars))])
-	}
-	return id
-}

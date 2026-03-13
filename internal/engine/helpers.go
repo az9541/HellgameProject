@@ -53,17 +53,6 @@ func lerp(a, b, t float64) float64 {
 	return a + t*(b-a)
 }
 
-func makeLog(forceRatio float64) float64 {
-	forceFactor := math.Log(forceRatio)
-	if forceFactor > 1 {
-		forceFactor = 1
-	}
-	if forceFactor < -1 {
-		forceFactor = -1
-	}
-	return forceFactor
-}
-
 func awarenessFromInfluence(influence float64) float64 {
 	if influence <= 0 {
 		return MinAwareness

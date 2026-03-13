@@ -348,30 +348,3 @@ func capDomainInfluence(influence map[string]float64) {
 		influence[factionID] = maxFloat(0.0, value) * scale
 	}
 }
-
-func buildOwnedByFactionDomain(
-	factionIDs []string,
-	domains []*DomainState,
-	factions map[string]*FactionState,
-) map[string]map[string]bool {
-	owned := make(map[string]map[string]bool, len(factionIDs))
-
-	domainInScope := make(map[string]struct{}, len(domains))
-	for _, d := range domains {
-		domainInScope[d.ID] = struct{}{}
-	}
-
-	for _, factionID := range factionIDs {
-		row := make(map[string]bool, len(domains))
-		if f := factions[factionID]; f != nil {
-			for _, domainID := range f.DomainsHeld {
-				if _, ok := domainInScope[domainID]; ok {
-					row[domainID] = true
-				}
-			}
-		}
-		owned[factionID] = row
-	}
-
-	return owned
-}

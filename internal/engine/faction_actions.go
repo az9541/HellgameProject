@@ -117,12 +117,6 @@ func (sim *WorldSimulator) attemptDomainTakeover(attacker *FactionState, domain 
 	}
 }
 
-// resolveFactionWar больше не разрешает войну мгновенно — только инициирует её.
-func (sim *WorldSimulator) resolveFactionWar(attacker, defender *FactionState, domain *DomainState) string {
-	sim.StartWarTrigger(attacker, defender, domain)
-	return "war_started"
-}
-
 // establishTradeRoute устанавливает торговый маршрут между двумя доменами
 func (sim *WorldSimulator) establishTradeRoute(faction *FactionState) {
 	// Выбираем два рандомных домена в стабильном порядке.
@@ -274,72 +268,6 @@ func (sim *WorldSimulator) UpdateFactionsOtherParameters() {
 		faction.Power = clamp(faction.Power+(wealth-0.5)*3, 5, 100)
 		faction.Territory = float64(len(faction.DomainsHeld))
 	}
-}
-
-func (sim *WorldSimulator) calculateForcesRecorevingModifier(faction *FactionState) float64 {
-	// Собираем все домены, которые контролирует фракция
-	controlledDomains := make([]*DomainState, 0)
-	for _, domainID := range faction.DomainsHeld {
-		if domain, ok := sim.State.Domains[domainID]; ok {
-			controlledDomains = append(controlledDomains, domain)
-		}
-	}
-	if len(controlledDomains) == 0 {
-		return 1.0
-	}
-
-	totalMultiplier := 0.0
-	for _, domain := range controlledDomains {
-		domainMultiplier := 1.0
-
-		switch {
-		case domain.Population == 0:
-			domainMultiplier *= 0.1
-		case domain.Population >= 2000 && domain.Population < 8000:
-			domainMultiplier *= 1
-		case domain.Population >= 8000 && domain.Population < 15000:
-			domainMultiplier *= 1.5
-		case domain.Population >= 15000 && domain.Population < 20000:
-			domainMultiplier *= 2.0
-		case domain.Population >= 20000:
-			domainMultiplier *= 2.5
-		default:
-			domainMultiplier *= 0.97
-		}
-
-		switch {
-		case domain.DangerLevel >= 9:
-			domainMultiplier *= 0.5
-		case domain.DangerLevel >= 7:
-			domainMultiplier *= 0.75
-		case domain.DangerLevel >= 5:
-			domainMultiplier *= 0.9
-		case domain.DangerLevel >= 3:
-			domainMultiplier *= 1.1
-		case domain.DangerLevel >= 1:
-			domainMultiplier *= 1.25
-		default:
-			domainMultiplier *= 1.25
-		}
-
-		switch {
-		case domain.Resources >= 80:
-			domainMultiplier *= 2.5
-		case domain.Resources >= 50:
-			domainMultiplier *= 2.0
-		case domain.Resources >= 20:
-			domainMultiplier *= 1.5
-		case domain.Resources >= 10:
-			domainMultiplier *= 1.2
-		default:
-			domainMultiplier *= 0.8
-		}
-
-		totalMultiplier += domainMultiplier
-
-	}
-	averageMultiplier := totalMultiplier / float64(len(controlledDomains))
-	return clamp(averageMultiplier, 0.25, 3.0) * faction.WealthIndex
 }
 
 func (faction *FactionState) canReachDomain(domain *DomainState, sim *WorldSimulator) (bool, []*DomainState) {
