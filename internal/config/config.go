@@ -20,7 +20,11 @@ type DbConfig struct {
 type Config struct {
 	// Настройки сервера
 	Server struct {
-		Port string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
+		EnableREST bool   `yaml:"enable_rest" env-default:"true"`
+		RESTPort   string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
+
+		EnableGRPC bool   `yaml:"enable_grpc" env-default:"false"`
+		GRPCPort   string `yaml:"grpc_port" env-default:":50051"`
 	} `yaml:"server"`
 
 	// Настройки логирования

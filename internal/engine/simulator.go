@@ -238,48 +238,8 @@ func (sim *WorldSimulator) Tick() {
 	sim.UpdateFactionsOtherParameters()
 	sim.UpdateDomainResources()
 	sim.UpdateWars()
-	// 5. И только в конце обновляем время
+	// 5. И только в конце обновляем времяg
 	sim.State.GlobalTick++
-}
-
-// Simulate запускает симуляцию на N часов
-func (sim *WorldSimulator) Simulate(ticks int64) *SimulationDelta {
-	sim.Mu.RLock()
-	startTime := sim.State.GlobalTick
-	sim.Mu.RUnlock()
-	endTime := startTime + ticks
-
-	for tick := startTime; tick < endTime; tick++ {
-		sim.Tick()
-	}
-
-	// Return delta (only changes)
-	sim.Mu.RLock()
-	delta := &SimulationDelta{
-		TicksSimulated: ticks,
-		Events:         sim.copyEventLog(),
-		FactionStates:  sim.CopyFactionStates(),
-		DomainStates:   sim.CopyDomainStates(),
-		GlobalTick:     sim.State.GlobalTick,
-	}
-	completionTick := sim.State.GlobalTick
-	sim.Mu.RUnlock()
-
-	sim.EmitEvent(GameEvent{
-		Type:      "SIMULATION_COMPLETED",
-		Tick:      completionTick,
-		EventKind: EventKindGeneric,
-		EventData: GenericEventData{
-			EventKind: EventKindGeneric,
-			EventData: map[string]any{
-				"ticks_simulated": ticks,
-				"events_count":    len(delta.Events),
-				"factions":        delta.FactionStates,
-				"domains":         delta.DomainStates,
-			},
-		},
-	})
-	return delta
 }
 
 // runTimeLoop - главный цикл фоновой симуляции

@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+// Это пространство имён для protobuf
+package hellgame.v1;
+
+// Указываем, куда генератор положит наш сгенерированный Go-код
+option go_package = "HellgameProject/internal/grpc/pb";
+
+// GameEngine - это аналог роутера Chi, который описывает набор доступных методов
+service GameEngine {
+  rpc Simulate (SimulateRequest) returns (SimulateResponse);
+  rpc GetWorldState (GetWorldStateRequest) returns (GetWorldStateResponse);
+  rpc GetEvents (GetEventsRequest) returns (GetEventsResponse);
+  rpc GetFactions (GetFactionsRequest) returns (GetFactionsResponse);
+  rpc GetDomains (GetDomainsRequest) returns (GetDomainsResponse);
+}
+
+// Запросы (Входящие данные) — аналог JSON из тела POST
+message SimulateRequest {
+  int64 ticks = 1;
+}
+
+// Ответы (Исходящие данные) — аналог JSON, который мы отправляем через respondJSON
+message SimulateResponse {
+  bool success = 1;
+  int64 ticks_simulated = 2;
+  int64 current_tick = 3;
+}
+
+message GetWorldStateRequest {}
+
+// Ответ состояния мира
+message GetWorldStateResponse {
+  int64 time = 1;
+  map<string, FactionState> factions = 2;
+  map<string, DomainState> domains = 3;
+  map<string, WarState> wars = 4;
+  repeated GameEvent event_log = 5;
+}
+
+// Описываем поля ответа состояния мира
+message FactionState {
+    string id = 1;
+    string name = 2;
+    double power = 3;
+    double territory = 4;
+    repeated string domains_held = 5;
+    map<string, double> attitude = 6;
+    double resources = 7;
+    double military_force = 8;
+    int64 last_action_time = 9;
+    double wealth_index = 10;
+    int64 total_population = 11;
+}
+
+message DomainState {
+    string id = 1;
+    string name = 2;
+    double stability = 3;
+    string controlled_by = 4;
+    double danger_level = 5;
+    int32 population = 6;
+    string mood = 7;
+    repeated string events = 8;
+    map<string, double> influence = 9;
+    repeated string adjacent_domains = 10;
+    double resources = 11;
+}
+
+message WarState {
+    string id = 1;
+    string attacker_id = 2;
+    string defender_id = 3;
+    string domain_id = 4;
+    int64 start_tick = 5;
+    int64 last_update_tick = 6;
+    int64 ticks_duration = 7;
+    map<string, double> frozen_factions_denseties = 8;
+    double attacker_committed_force = 9;
+    double defender_committed_force = 10;
+    double attacker_current_force = 11;
+    double defender_current_force = 12;
+    double momentum = 13;
+    double attacker_morale = 14;
+    double defender_morale = 15;
+    bool is_over = 16;
+    map<string, string> winners_id = 17;
+    map<string, string> losers_id = 18;
+}
+
+message GameEvent {
+    string type = 1;
+    int64 tick = 2;
+    string event_kind = 3;
+    oneof event_data {
+        WarStartedData war_started = 4;
+        WarEndedData war_ended = 5;
+        WarUpdateData war_update = 6;
+        WarAbortedData war_aborted = 7;
+        GenericEventData generic_event = 8;
+    }
+}
+
+message WarStartedData {
+    string attacker = 1;
+    string defender = 2;
+    string domain = 3;
+    string domain_id = 4;
+    string reason = 5;
+    double actual_defender_force = 6;
+    double estimate_defender_force = 7;
+    double attacker_commited = 8;
+    double defender_commited = 9;
+    double ration = 10;
+    double min_strength_ratio = 11;
+}
+
+message WarEndedData {
+    string attacker = 1;
+    string defender = 2;
+    string domain = 3;
+    string reason = 4;
+    string winner_id = 5;
+    string losers_id = 6;
+    double attacker_losses_pct = 7;
+    double defender_losses_pct = 8;
+    double attacker_morale = 9;
+    double defender_morale = 10;
+    double attacker_force_remain = 11;
+    double defender_force_remain = 12;
+}
+
+message WarUpdateData {
+    string attacker = 1;
+    string defender = 2;
+    string domain = 3;
+    double momentum = 4;
+    double attacker_morale = 5;
+    double defender_morale = 6;
+    double attacker_force = 7;
+    double defender_force = 8;
+    double attacker_losses_pct = 9;
+    double defender_losses_pct = 10;   
+    double force_ratio = 11;
+}
+
+message WarAbortedData {
+    string attacker = 1;
+    string defender = 2;
+    string domain = 3;
+    string domain_id = 4;
+    string reason = 5;
+    double actual_defender_force = 6;
+    double estimate_defender_force = 7;
+    double attacker_commited = 8;
+    double defender_commited = 9;
+    double ratio = 10;
+    double min_strength_ratio = 11;
+}
+
+message GenericEventData {
+  string event_kind = 1;
+  string payload_json = 2; // <-- Сюда мы просто запихнем сериализованный JSON
+}
+
+message GetEventsRequest {
+    int32 limit = 1;
+}
+
+message GetEventsResponse {
+    int32 count = 1;
+    repeated GameEvent events = 2;
+}
+
+message GetFactionsRequest {}
+
+message GetFactionsResponse {
+    map<string, FactionState> factions = 1;
+}
+
+message GetDomainsRequest {}
+
+message GetDomainsResponse {
+    map<string, DomainState> domains = 1;
+}

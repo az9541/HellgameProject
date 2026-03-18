@@ -16,7 +16,7 @@ import (
 )
 
 type Handler struct {
-	Sim *engine.WorldSimulator
+	Sim engine.GameEngine //
 }
 
 func (h *Handler) NewRouter() http.Handler {
@@ -96,16 +96,15 @@ func (h *Handler) handleSimulate(w http.ResponseWriter, r *http.Request) {
 
 // handleGetWorldState - получить текущее состояние мира
 func (h *Handler) handleGetWorldState(w http.ResponseWriter, r *http.Request) {
-	h.Sim.Mu.RLock()
-	defer h.Sim.Mu.RUnlock()
+	state := h.Sim.GetWorldState()
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":         "ok",
-		"time":           h.Sim.State.GlobalTick,
-		"factions":       h.Sim.CopyFactionStates(),
-		"domains":        h.Sim.CopyDomainStates(),
-		"event_log_size": len(h.Sim.State.EventLog),
-		"wars":           h.Sim.CopyWars(),
+		"time":           state.Time,
+		"factions":       state.Factions,
+		"domains":        state.Domains,
+		"event_log_size": len(state.EventLog),
+		"wars":           state.Wars,
 	})
 }
 
@@ -120,21 +119,7 @@ func (h *Handler) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.Sim.Mu.RLock()
-	defer h.Sim.Mu.RUnlock()
-
-	var events []engine.GameEvent
-	events = h.Sim.State.EventLog
-
-	// Return last N events
-	start := len(events) - limit
-	if start < 0 {
-		start = 0
-	}
-
-	if start < len(events) {
-		events = events[start:]
-	}
+	events := h.Sim.GetEvents(limit)
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
@@ -145,22 +130,20 @@ func (h *Handler) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 
 // handleGetFactions - получить состояние всех фракций
 func (h *Handler) handleGetFactions(w http.ResponseWriter, r *http.Request) {
-	h.Sim.Mu.RLock()
-	defer h.Sim.Mu.RUnlock()
 
+	factions := h.Sim.GetFactions()
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":   "ok",
-		"factions": h.Sim.CopyFactionStates(),
+		"factions": factions,
 	})
 }
 
 // handleGetDomains - получить состояние всех доменов
 func (h *Handler) handleGetDomains(w http.ResponseWriter, r *http.Request) {
-	h.Sim.Mu.RLock()
-	defer h.Sim.Mu.RUnlock()
+	domains := h.Sim.GetDomains()
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
-		"domains": h.Sim.CopyDomainStates(),
+		"domains": domains,
 	})
 }
