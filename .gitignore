@@ -4,3 +4,12 @@ batch
 backend
 .github/copilot-instructions.md
 out/seeds_1_150.csv
+Архив.zip
+План перехода на Go Middle с проектом Hellgame.docx
+.vscode/.golangci.yml
+savegame.json
+config.yaml
+go.mod
+go.sum
+internal/grpc/pb/engine.pb.go
+internal/grpc/pb/engine_grpc.pb.go
