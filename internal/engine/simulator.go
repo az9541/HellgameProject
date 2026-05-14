@@ -238,13 +238,12 @@ func (sim *WorldSimulator) Tick() {
 	sim.UpdateFactionsOtherParameters()
 	sim.UpdateDomainResources()
 	sim.UpdateWars()
-	// 5. И только в конце обновляем времяg
+	// 5. И только в конце обновляем время
 	sim.State.GlobalTick++
 }
 
 // runTimeLoop - главный цикл фоновой симуляции
 func (sim *WorldSimulator) runTimeLoop() {
-	// 1 тик = 5 реальных секунд
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
