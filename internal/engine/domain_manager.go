@@ -121,6 +121,9 @@ func (sim *WorldSimulator) UpdateDomainDanger() {
 		default:
 			dangerChange += 0.01
 		}
+		if domain.ControlledBy != FactionNone && domain.DangerLevel < 3 {
+			dangerChange -= 0.03
+		}
 		domain.DangerLevel = clamp(domain.DangerLevel+dangerChange, 0, 10)
 	}
 }

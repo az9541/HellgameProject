@@ -44,16 +44,16 @@ func (sim *WorldSimulator) runKPPSimulation() {
 		return
 	}
 
-	factionIDs := getSortedFactionKeys(sim.State.Factions)
+	factionIDs := getSortedFactionKeys(sim.State.Factions, sim.State.GlobalTick)
 	state := sim.solveExpansionEquations(factionIDs, domains, 1)
 	if state == nil {
 		return
 	}
 	ApplyInfluenceStateToDomains(state, factionIDs, domains)
 	// Ограничиваем общее влияние на домен, чтобы не уходило за 100%
-	for _, domain := range domains {
+	/*for _, domain := range domains {
 		capDomainInfluence(domain.Influence)
-	}
+	}*/ // Теперь это делается внутри solveExpansionEquations после каждого шага, чтобы избежать скачков за 100% в процессе решения
 
 	if !sim.opts.DisableKPPTickLogs { // Отключем спам логов KPP при батчевом дебаге
 		for _, factionID := range factionIDs {
@@ -197,6 +197,9 @@ func (sim *WorldSimulator) solveExpansionEquations(
 			)
 			sim.Metrics.SetDiffusionAdvectionDuration(time.Since(startAdvection))
 
+			for _, domain := range domains {
+				capDomainInfluence(domain.Influence)
+			}
 			clampInfluenceInPlace(state, factionIDs, domains, 0.0, 1.0)
 		}
 	}
@@ -208,7 +211,7 @@ func (sim *WorldSimulator) solveExpansionEquations(
 func applySourceStep(state InfluenceState, factionIDs []string, domains []*DomainState,
 	factionOwnedDomains map[string]map[string]bool, wealthByFaction map[string]float64,
 	dt float64, warMaskByDomain map[string]bool) InfluenceState {
-	const warSuppressionForSource = 0.2 // Война сильно подавляет генерацию влияния в своих доменах
+	const warSuppressionForSource = 0
 	nextInfluence := state.CopyInfluenceState()
 
 	for _, factionID := range factionIDs {
@@ -219,7 +222,7 @@ func applySourceStep(state InfluenceState, factionIDs []string, domains []*Domai
 			}
 			if warMaskByDomain[domain.ID] {
 				nextInfluence[factionID][domain.ID] += dt * sourceBaseRate *
-					wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID]) * warSuppressionForSource // Война подавляет генерацию влияния в своих доменах
+					wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID]) * warSuppressionForSource // Война полностью подавляет генерацию влияния в своих доменах
 			} else {
 				nextInfluence[factionID][domain.ID] += dt * sourceBaseRate * wealth * maxFloat(0, sourceTargetOwned-nextInfluence[factionID][domain.ID])
 			}
@@ -326,12 +329,14 @@ func clampInfluenceInPlace(state InfluenceState, factionIDs []string, domains []
 	}
 }
 
-func getSortedFactionKeys(factions map[string]*FactionState) []string {
+func getSortedFactionKeys(factions map[string]*FactionState, globalTick int64) []string {
 	keys := make([]string, 0, len(factions))
 	for k := range factions {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	startPosition := (globalTick / 6) % int64(len(factions))
+	keys = append(keys[startPosition:], keys[:startPosition]...)
 	return keys
 }
 

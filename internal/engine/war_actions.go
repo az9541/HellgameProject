@@ -205,8 +205,7 @@ func (sim *WorldSimulator) countActiveWars(factionID string) int {
 }
 
 func (sim *WorldSimulator) UpdateWars() {
-	activeWars := make(map[string]*WarState, len(sim.State.Wars))
-	for id, war := range sim.State.Wars {
+	for _, war := range sim.State.Wars {
 		if war.IsOver {
 			continue
 		}
@@ -253,18 +252,14 @@ func (sim *WorldSimulator) UpdateWars() {
 		// Обработка окончания войны
 		sim.resolveWarOutcome(war, attacker, defender, domain, warOutcome, attackerLossPercent, defenderLossPercent, currentForceRatio)
 
-		activeWars[id] = war
 	}
 
-	warsToShow := make(map[string]*WarState, len(activeWars))
-	for _, war := range activeWars {
-		if sim.State.GlobalTick-war.LastUpdateTick > 100 {
-			continue
+	const warRetentionTicks = 100
+	for id, war := range sim.State.Wars {
+		if war.IsOver && sim.State.GlobalTick-war.LastUpdateTick > warRetentionTicks {
+			delete(sim.State.Wars, id)
 		}
-		warsToShow[war.ID] = war
 	}
-
-	sim.State.Wars = warsToShow
 
 }
 

@@ -81,7 +81,7 @@ func RunSeedBatch(cfg SeedBatchConfig) (int, error) {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	factionIDs := getSortedFactionKeys(createInitialFactions())
+	factionIDs := getSortedFactionKeys(createInitialFactions(), 0)
 	header := []string{
 		"seed",
 		"ticks",
@@ -175,7 +175,6 @@ func RunSeedBatch(cfg SeedBatchConfig) (int, error) {
 			if faction != nil {
 				military = faction.MilitaryForce
 				resources = faction.Resources
-				power = faction.Power
 			}
 
 			row = append(row,

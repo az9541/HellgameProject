@@ -8,7 +8,7 @@ import (
 
 // executeFactionActions выполняет действия всех фракций
 func (sim *WorldSimulator) executeFactionActions() {
-	for _, factionID := range getSortedFactionKeys(sim.State.Factions) {
+	for _, factionID := range getSortedFactionKeys(sim.State.Factions, sim.State.GlobalTick) {
 		faction := sim.State.Factions[factionID]
 		if faction == nil {
 			continue
