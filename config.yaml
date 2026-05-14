@@ -1,8 +1,6 @@
 server:
   enable_rest: true
   rest_port: ":8080"
-  enable_grpc: true
-  grpc_port: ":50051"
 logger:
   is_dev: true
 simulation:
@@ -11,11 +9,4 @@ simulation:
   use_mock_topology: false
   enable_metrics: true
   load_from_save: false
-  db_type: "json" # "json" или "postgres"
-database:
-  host: "localhost"
-  port: 5432
-  user: "hellgame_user"
-  password: "--secret--"
-  dbname: "hellgame_project"
-  sslmode: "disable"
+  db_type: "json"
